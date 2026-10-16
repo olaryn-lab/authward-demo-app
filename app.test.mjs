@@ -68,6 +68,9 @@ test('consent forwards the original signed query unchanged and requires product 
   assert.equal(page.status,200);
   const html=await page.text();
   const cookie=page.headers.get('set-cookie').split(';')[0];
+  assert.match(html,/Approve sign-in\?/);
+  assert.match(html,/class="primary">Allow access/);
+  assert.match(html,/>Deny access<\/button>/);
   const csrf=csrfFrom(html);
   assert.ok(csrf);
   const forbidden=await get('/auth/consent',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',cookie},body:new URLSearchParams({csrf:'bad',decision:'allow'})});

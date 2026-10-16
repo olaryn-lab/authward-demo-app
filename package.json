@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
-  "scripts": { "start": "node app.mjs", "check": "node --check app.mjs && node --check ui.mjs", "test": "NODE_ENV=test AUTHWARD_CLIENT_ID=demo-web node --test app.test.mjs ui.test.mjs" },
+  "scripts": { "start": "node app.mjs", "check": "node --check app.mjs && node --check ui.mjs && node --check cli.mjs", "test": "NODE_ENV=test AUTHWARD_CLIENT_ID=demo-web node --test app.test.mjs ui.test.mjs cli.test.mjs" },
   "dependencies": { "openid-client": "6.8.8" }
 }

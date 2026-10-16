@@ -12,7 +12,7 @@ const icons = {
   email: `<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>`,
 };
 
-function page(title, content) {
+function page(title, content, { showCli = false } = {}) {
   return `<!doctype html><html lang="en"><head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light"><title>${escapeHtml(title)} · Authward Demo</title>
@@ -34,9 +34,23 @@ function page(title, content) {
   .status{display:inline-flex;align-items:center;gap:7px;color:#217a53;font-size:13px;font-weight:650}.dot{width:8px;height:8px;border-radius:50%;background:#29a46a}
   .actions{display:flex;gap:12px}.secondary{display:flex;justify-content:center;width:100%;min-height:44px;align-items:center;border:1px solid #d8dfe8;background:white;border-radius:9px;color:#333e4e;font-size:14px;font-weight:600;font-family:inherit;line-height:1.3;text-decoration:none;cursor:pointer}
   form{margin:0}.secondary:hover{background:#f5f7fb}.small{font-size:12px;color:#8390a0;line-height:1.6;text-align:center;margin-top:19px}.small a{color:#4f6590}
-  .compact .card{padding:32px}.compact h1{text-align:left;font-size:23px}.compact .sub{text-align:left;margin-bottom:14px}
+  .cli-demo{margin:16px 0 0;border:1px solid #e0e5ec;border-radius:12px;padding:12px 13px;background:#fff}.cli-heading{font-size:12px;font-weight:700;margin:0 0 8px;color:#697587}.cli-line{display:flex;align-items:center;gap:8px}.cli-line code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;flex:1;white-space:nowrap;color:#29394d;overflow-x:auto}.copy-cli{padding:6px 10px;border:1px solid #d8dfe8;background:#f9fbfd;border-radius:7px;cursor:pointer;color:#244a87;font-size:12px;font-weight:650}.copy-cli:hover{background:#edf4fe}.copy-cli:focus-visible{outline:3px solid #97b5ec;outline-offset:2px}
+  .compact .card{padding:30px 32px}.compact h1{text-align:left;font-size:23px;margin:0 0 13px}.compact .sub{text-align:left;margin-bottom:14px}
+  .auth-flow p{color:#5d6878;font-size:14px;line-height:1.6;margin:0 0 16px}
+  .auth-flow .requested{border:1px solid #e3eaf0;border-radius:10px;padding:14px;margin:18px 0;background:#fafbfd}
+  .auth-flow .requested b{display:block;margin-bottom:6px;font-size:13px}
+  .auth-flow .requested span{color:#657385;font-size:13px}
+  .auth-flow form{margin:0}.auth-flow form+form{margin-top:10px}
+  .auth-flow form button{display:flex;align-items:center;justify-content:center;width:100%;min-height:45px;border-radius:9px;padding:11px 15px;border:1px solid #d8dfe8;background:white;color:#20272d;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;transition:background .14s}
+  .auth-flow form button:hover{background:#f4f7fb}
+  .auth-flow form button.primary{color:#fff;background:#244a87;border-color:#244a87}
+  .auth-flow form button.primary:hover{background:#173b73}
+  .auth-flow label{display:block;margin:12px 0 7px}
+  .auth-flow input{width:100%;height:45px;padding:0 12px;border:1px solid #cbd4dd;border-radius:9px;font:inherit}
+  .auth-flow form button:focus-visible{outline:3px solid #98b5ec;outline-offset:2px}
+
   @media(max-width:480px){.card{padding:27px 22px}.compact .card{padding:26px}.mark{margin-bottom:22px}body{padding:20px 14px}}
-  </style></head><body><main class="shell"><div class="mark"><span class="logo" aria-hidden="true">A</span>Authward Demo</div>${content}<p class="small">Powered by <a href="https://auth.olaryn.com" rel="noopener noreferrer">Authward</a></p></main></body></html>`;
+  </style></head><body><main class="shell"><div class="mark"><span class="logo" aria-hidden="true">A</span>Authward Demo</div>${content}${showCli ? `<aside class="cli-demo"><p class="cli-heading">CLI login · no web server needed</p><div class="cli-line"><code>node cli.mjs login</code><button type="button" class="copy-cli" aria-label="Copy CLI login command">Copy</button></div></aside><script>document.querySelector('.copy-cli').addEventListener('click',async e=>{try{await navigator.clipboard.writeText('node cli.mjs login');e.currentTarget.textContent='Copied'}catch{e.currentTarget.textContent='Select command'}})</script>` : ''}<p class="small">Powered by <a href="https://auth.olaryn.com" rel="noopener noreferrer">Authward</a></p></main></body></html>`;
 }
 
 function provider(method,label,{interactive,csrf}){
@@ -57,7 +71,7 @@ export function signIn({mode='login',interactive=false,csrf='',info=''}={}) {
     <div class="divider">or continue with email</div>
     ${interactive?`<form method="post" action="/auth/method"><label for="email">Email address</label><input type="email" name="email" id="email" placeholder="you@example.com" autocomplete="email" required><input type="hidden" name="method" value="magic"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="submit">${icons.email} Send sign-in link</button></form>`:
     `<a class="submit" style="text-decoration:none" href="/auth/start?method=magic">${icons.email} Continue with email</a>`}
-  </section>`);
+  </section>`,{showCli:true});
 }
 
 export function accountPage(account, csrf) {
@@ -65,6 +79,18 @@ export function accountPage(account, csrf) {
   return page('Account',`<section class="card"><h1>${escapeHtml(display)}</h1><p class="sub"><span class="status"><span class="dot"></span> Authenticated with Authward</span></p>
     <div class="identity"><div><small>Email</small><strong>${escapeHtml(account.email||'Not shared by provider')}</strong></div><div><small>User ID</small><strong>${escapeHtml(account.sub)}</strong></div></div>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="secondary">Sign out</button></form>
+  </section>`);
+}
+
+export function consentPage({csrf,scopes=[]}={}) {
+  const allowed=new Set(scopes.filter(value=>['openid','profile','email'].includes(value)));
+  const shared=[...(allowed.has('profile')?['Your profile']:[]),...(allowed.has('email')?['Your email address']:[])];
+  const description=shared.length ? shared.join(' and ') : 'Your identity';
+  return page('Access approval',`<section class="card compact"><h1>Approve sign-in?</h1><p class="sub" style="text-align:left">Authward Demo is requesting permission to continue.</p>
+    <div class="auth-flow"><div class="requested"><b>Requested access</b><span>${escapeHtml(description)}</span></div>
+      <form method="post" action="/auth/consent"><input type="hidden" name="decision" value="allow"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="primary">Allow access</button></form>
+      <form method="post" action="/auth/consent"><input type="hidden" name="decision" value="deny"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit">Deny access</button></form>
+    </div>
   </section>`);
 }
 

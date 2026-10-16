@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import * as oidc from 'openid-client';
-import { signIn,accountPage,errorPage,auxiliaryPage } from './ui.mjs';
+import { signIn,accountPage,consentPage,errorPage,auxiliaryPage } from './ui.mjs';
 
 const env = process.env;
 const port = Number(env.PORT || 4402);
@@ -181,8 +181,8 @@ const server=createServer(async(req,res)=>{
       const old=transaction(req);const created=old || newTransaction(res);
       if(!old)res.setHeader('Set-Cookie',cookie(created.key));
       created.entry.consent={raw,confirmation};
-      const markup=`<h1>Allow access to ${escape(product)}?</h1><p>This authorization request uses the identity provider. Review the requested permissions carefully.</p><form method="post" action="/auth/consent">${formButton('Allow access',created.entry.csrf,'<input name="decision" type="hidden" value="allow">')}</form><form method="post" action="/auth/consent"><input name="decision" type="hidden" value="deny">${formButton('Deny access',created.entry.csrf)}</form>`;
-      return send(res,200,auxiliaryPage('Access approval',markup));
+      const scopes=(new URLSearchParams(raw).get('scope')||'').split(/\s+/).filter(Boolean);
+      return send(res,200,consentPage({csrf:created.entry.csrf,scopes}));
     }
     if(url.pathname==='/auth/consent' && req.method==='POST') {
       const form=await readForm(req),flow=confirmPost(req,res,form);if(!flow)return;
