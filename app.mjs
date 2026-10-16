@@ -6,15 +6,16 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import * as oidc from 'openid-client';
+import { landing,signIn,workspace,errorPage,auxiliaryPage } from './ui.mjs';
 
 const env = process.env;
 const port = Number(env.PORT || 4402);
-const product = env.PRODUCT_NAME || 'Example Store';
+const product = env.PRODUCT_NAME || 'Nook Commerce';
 const origin = new URL(env.PRODUCT_ORIGIN || `http://127.0.0.1:${port}`);
 const issuer = env.AUTHWARD_ISSUER || 'https://auth.olaryn.com';
-const clientId = env.AUTHWARD_CLIENT_ID || '';
+const clientId = env.AUTHWARD_CLIENT_ID || 'authward-demo-local';
 const clientSecret = env.AUTHWARD_CLIENT_SECRET || '';
-const audience = env.AUTHWARD_AUDIENCE || '';
+const audience = env.AUTHWARD_AUDIENCE || 'https://demo.auth.olaryn.com';
 const clientKind = clientSecret ? 'confidential' : 'public';
 const securityEnabled = origin.protocol === 'https:';
 const transactions = new Map();
@@ -36,16 +37,13 @@ function send(res, status, message) {
   res.writeHead(status, {'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});
   res.end(message);
 }
-function page(title, content) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} | ${escape(product)}</title>
-  <style>body{font:16px/1.5 system-ui,sans-serif;background:#f6f7fa;color:#1e293b;margin:0}main{max-width:580px;margin:64px auto;padding:30px;border:1px solid #e2e8f0;border-radius:14px;background:white}h1{font-size:26px}p{color:#475569}a,button{font:inherit;color:#19458d}button{cursor:pointer;padding:10px 18px;border-radius:8px;background:#174a7e;color:white;border:0}form{margin:16px 0;display:flex;flex-wrap:wrap;gap:12px;align-items:center}input{padding:10px;border:1px solid #94a3b8;border-radius:8px;min-width:230px}.secondary{background:#e2e8f0;color:#1e293b}</style></head><body><main><strong>${escape(product)}</strong>${content}</main></body></html>`;
-}
+
 function redirect(res, url, setCookie) {
   const headers = {location: String(url), 'cache-control':'no-store'};
   if (setCookie) headers['set-cookie'] = setCookie;
   res.writeHead(303, headers);res.end();
 }
-function bad(res, status=400, detail='Invalid request') { send(res,status,page('Request error',`<h1>Request unavailable</h1><p>${escape(detail)}</p><a href="/">Return to ${escape(product)}</a>`)); }
+function bad(res, status=400, detail='Invalid request') { send(res,status,errorPage(detail)); }
 function readForm(req, limit=8000) {
   return new Promise((resolve,reject)=>{
     let data='';
@@ -81,17 +79,24 @@ function limitString(value,max=8192) {return typeof value==='string' && value.le
 const server=createServer(async(req,res)=>{
   const url=new URL(req.url || '/',origin);
   try {
-    if(url.pathname==='/') {
-      const state=transaction(req);const account=state?.entry.account;
-      return send(res,200,page('Home',`<h1>Welcome to ${escape(product)}</h1><p>All visible screens belong to this product. Identity is verified by a separate authority.</p>${account?`<a href="/account">Your account</a>`:'<a href="/login">Sign in</a>'}`));
+    if(url.pathname==='/' && req.method==='GET') return send(res,200,landing());
+    const previewRoute=url.pathname.match(/^\/demo(?:\/(orders|products|settings))?\/?$/);
+    if(previewRoute && req.method==='GET') {
+      return send(res,200,workspace({preview:true,section:previewRoute[1]||'overview'}));
+    }
+    const protectedRoute=url.pathname.match(/^\/app(?:\/(orders|products|settings))?\/?$/);
+    if(protectedRoute && req.method==='GET') {
+      const state=transaction(req);
+      if(!state?.entry.account) return redirect(res,'/login');
+      return send(res,200,workspace({preview:false,section:protectedRoute[1]||'overview',account:state.entry.account,csrf:state.entry.csrf}));
     }
     if(url.pathname==='/auth/start' && req.method==='GET') {
-      if(!clientId) return bad(res,503,'Configure the demo OAuth client first.');
+      if (!clientId) return bad(res,503,'Demo OAuth client ID is missing.');
       const configuration=await config();
       const verifier=oidc.randomPKCECodeVerifier();
       const challenge=await oidc.calculatePKCECodeChallenge(verifier);
       const state=oidc.randomState();const nonce=token();
-      const {key}=newTransaction(res,{verifier,state,nonce});
+      const {key}=newTransaction(res,{verifier,state,nonce,selectedMethod:url.searchParams.get('method')||''});
       const target=oidc.buildAuthorizationUrl(configuration,{
         redirect_uri:new URL('/callback',origin).href,response_type:'code',scope:'openid profile email',
         code_challenge:challenge,code_challenge_method:'S256',state,nonce,
@@ -113,11 +118,8 @@ const server=createServer(async(req,res)=>{
         if(!stored) res.setHeader('Set-Cookie',cookie(state.key));
         state.entry.interactionQuery=incoming;
       }
-      if(!state?.entry.interactionQuery) return send(res,200,page('Sign in',`<h1>Sign in to ${escape(product)}</h1><p>Use your product account to continue.</p><a href="/auth/start">Continue securely</a>`));
-      const csrf=escape(state.entry.csrf);
-      const heading=url.pathname==='/signup'?'Create your account':'Sign in';
-      const sent=url.searchParams.get('sent')==='1' ? '<p>Check your email for the sign-in link.</p>' : '';
-      return send(res,200,page(heading,`<h1>${heading} to ${escape(product)}</h1>${sent}<form method="post" action="/auth/method">${formButton('Continue with Google',csrf,'<input type="hidden" name="method" value="google">')}</form><form method="post" action="/auth/method">${formButton('Use a passkey',csrf,'<input type="hidden" name="method" value="passkey">')}</form><form method="post" action="/auth/method"><input name="email" type="email" autocomplete="email" placeholder="you@example.com" required><input type="hidden" name="method" value="magic">${formButton('Email me a sign-in link',csrf)}</form><p><a href="/signup">New here? Create an account</a></p>`));
+      if(!state?.entry.interactionQuery) return send(res,200,signIn({mode:url.pathname==='/signup'?'signup':'login'}));
+      return send(res,200,signIn({mode:url.pathname==='/signup'?'signup':'login',interactive:true,csrf:state.entry.csrf,info:url.searchParams.get('sent')==='1'?'Check your email for the sign-in link.':''}));
     }
     if(url.pathname==='/auth/method' && req.method==='POST') {
       const form=await readForm(req),state=confirmPost(req,res,form);if(!state)return;
@@ -126,7 +128,7 @@ const server=createServer(async(req,res)=>{
       const method=form.get('method');
       const target=new URL('/interaction/login',issuer);
       target.searchParams.set('interaction_query_b64',Buffer.from(raw).toString('base64url'));
-      if(method==='google'){target.searchParams.set('action','social');target.searchParams.set('provider','google');}
+      if(method==='google' || method==='github'){target.searchParams.set('action','social');target.searchParams.set('provider',method);}
       else if(method==='passkey')target.searchParams.set('action','passkey');
       else if(method==='magic'){
         const email=limitString(form.get('email'),254).trim();
@@ -150,12 +152,12 @@ const server=createServer(async(req,res)=>{
       flow.entry.accessToken=tokens.access_token;
       flow.entry.refreshToken=tokens.refresh_token;
       delete flow.entry.verifier; delete flow.entry.nonce; delete flow.entry.interactionQuery;
-      return redirect(res,'/account');
+      return redirect(res,'/app');
     }
     if(url.pathname==='/account') {
-      const account=transaction(req)?.entry.account;
-      if(!account)return redirect(res,'/login');
-      return send(res,200,page('Account',`<h1>Your ${escape(product)} account</h1><p>Identity subject: ${escape(account.sub)}</p><p>Product role: ${escape(account.role)}</p><form action="/logout" method="post">${formButton('Sign out',transaction(req).entry.csrf)}</form>`));
+      const state=transaction(req);
+      if(!state?.entry.account) return redirect(res,'/login');
+      return redirect(res,'/app/settings');
     }
     if(url.pathname==='/logout' && req.method==='POST') {
       const form=await readForm(req),flow=confirmPost(req,res,form);if(!flow)return;
@@ -172,7 +174,7 @@ const server=createServer(async(req,res)=>{
       if(!old)res.setHeader('Set-Cookie',cookie(created.key));
       created.entry.consent={raw,confirmation};
       const markup=`<h1>Allow access to ${escape(product)}?</h1><p>This authorization request uses the identity provider. Review the requested permissions carefully.</p><form method="post" action="/auth/consent">${formButton('Allow access',created.entry.csrf,'<input name="decision" type="hidden" value="allow">')}</form><form method="post" action="/auth/consent"><input name="decision" type="hidden" value="deny">${formButton('Deny access',created.entry.csrf)}</form>`;
-      return send(res,200,page('Access approval',markup));
+      return send(res,200,auxiliaryPage('Access approval',markup));
     }
     if(url.pathname==='/auth/consent' && req.method==='POST') {
       const form=await readForm(req),flow=confirmPost(req,res,form);if(!flow)return;
@@ -190,8 +192,8 @@ const server=createServer(async(req,res)=>{
       if(!old)res.setHeader('Set-Cookie',cookie(created.key));
       if(code && confirmation)created.entry.device={code,confirmation};
       const pending=created.entry.device;
-      if(!pending) return send(res,200,page('Connect device',`<h1>Connect your ${escape(product)} device</h1><form method="get" action="/device/start"><input name="user_code" placeholder="Device code" required><button>Continue</button></form>`));
-      return send(res,200,page('Approve device',`<h1>Authorize this device?</h1><p>Device code: ${escape(pending.code)}</p><form action="/auth/device" method="post"><input type="hidden" name="decision" value="approve">${formButton('Approve',created.entry.csrf)}</form><form action="/auth/device" method="post"><input type="hidden" name="decision" value="deny">${formButton('Deny',created.entry.csrf)}</form>`));
+      if(!pending) return send(res,200,auxiliaryPage('Connect device',`<h1>Connect your ${escape(product)} device</h1><form method="get" action="/device/start"><input name="user_code" placeholder="Device code" required><button>Continue</button></form>`));
+      return send(res,200,auxiliaryPage('Approve device',`<h1>Authorize this device?</h1><p>Device code: ${escape(pending.code)}</p><form action="/auth/device" method="post"><input type="hidden" name="decision" value="approve">${formButton('Approve',created.entry.csrf)}</form><form action="/auth/device" method="post"><input type="hidden" name="decision" value="deny">${formButton('Deny',created.entry.csrf)}</form>`));
     }
     if(url.pathname==='/device/start' && req.method==='GET') {
       const code=limitString(url.searchParams.get('user_code'),128);

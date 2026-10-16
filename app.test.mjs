@@ -17,8 +17,27 @@ test('app-owned login, signup, and account screens do not expose Authward brandi
   for(const route of ['/','/login','/signup']) {
     const response=await get(route),body=await response.text();
     assert.equal(response.status,200);
-    assert.match(body, /Example Store/);
+    assert.match(body, /Nook Commerce/);
     assert.doesNotMatch(body,/Sign in to Authward|Create an Authward account/);
+  }
+  const visitorsDashboard=await get('/demo');
+  assert.equal(visitorsDashboard.status,200);
+  const sample=await visitorsDashboard.text();
+  assert.match(sample,/Exploring a sample workspace/);
+  assert.match(sample,/Total revenue/);
+  assert.match(sample,/Recent orders/);
+  const protectedDashboard=await get('/app');
+  assert.equal(protectedDashboard.status,303);
+  assert.equal(protectedDashboard.headers.get('location'),'/login');
+  for(const route of ['/app/orders','/app/products','/app/settings']){
+    const response=await get(route);
+    assert.equal(response.status,303);
+    assert.equal(response.headers.get('location'),'/login');
+  }
+  for(const route of ['/demo/orders','/demo/products','/demo/settings']){
+    const response=await get(route);
+    assert.equal(response.status,200);
+    assert.match(await response.text(),/Sample workspace|Sample store|Exploring a sample workspace/);
   }
   const account=await get('/account');
   assert.equal(account.status,303);assert.equal(account.headers.get('location'),'/login');
@@ -31,7 +50,11 @@ test('fresh product-owned sign-in starts a first-party session for Authward hand
   const cookie=landing.headers.get('set-cookie')?.split(';')[0];
   assert.ok(cookie, 'new browser visitor receives first-party transaction cookie');
   const html=await landing.text();
-  assert.match(html,/Sign in to Example Store/);
+  assert.match(html,/Continue with Google/);
+  assert.match(html,/Continue with GitHub/);
+  assert.match(html,/Sign in with a passkey/);
+  assert.match(html,/Send a sign-in link/);
+  assert.match(html,/Welcome back/);
   const csrf=csrfFrom(html);
   assert.ok(csrf,'first landing has a CSRF token');
   const action=await get('/auth/method',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',cookie},body:new URLSearchParams({csrf,method:'google'})});

@@ -18,20 +18,21 @@ npm test
 npm start
 ```
 
-Open [http://127.0.0.1:4402](http://127.0.0.1:4402) to inspect the product-owned screens. You can explore the product interface and the automated tests without any Authward credentials. **Actual OIDC sign-in requires configuring an Authward OAuth client** first.
+Open [http://127.0.0.1:4402](http://127.0.0.1:4402) to visit **Nook Commerce**, a small example SaaS application. Click **Explore sample dashboard** for an instant, clearly labeled sample workspace (no account, no fake login). Use **Sign in** to start a real Authward OAuth authorization and, after completing the real callback, enter the protected `/app` workspace.
 
-For an Authward development workspace, create or reuse a **confidential-web** OAuth client with the exact redirect `http://127.0.0.1:4402/callback` (only for local development) and the matching post-logout URL `http://127.0.0.1:4402/`. Configure its associated resource's `interactionBaseUrl` to `http://127.0.0.1:4402` so it routes product-owned login, consent, and device screens here. Enable the desired login methods on the provider side. The resource setting is not the same as a client redirect and may require dashboard configuration.
+Authward provides a dedicated public demo client **`authward-demo-local`** (Authorization Code with PKCE S256, **no client secret**), an isolated identity-only audience `https://demo.auth.olaryn.com`, and exact loopback callback `http://127.0.0.1:4402/callback`. These are the source defaults; the public client must also be present in the Authward deployment (otherwise authorization will fail). The resource's `interactionBaseUrl` is restricted to the demo's exact `http://127.0.0.1:4402` origin; normal Authward production clients keep HTTPS-only interaction origins. No Beseam, Trevra, or LemonCrow API permission is granted.
+
+**Localhost works only when your browser and the demo server run on the same computer.** If your development environment is remote, use an explicitly approved HTTPS preview with its own properly registered callback; do not interpret remote localhost as a working browser URL.
 
 Set these variables in your terminal or from an ignored `.env` file loaded by your development shell (the app does **not** automatically load dotenv):
 
 ```bash
-export PRODUCT_NAME='Example Store'
+export PRODUCT_NAME='Nook Commerce'
 export PRODUCT_ORIGIN='http://127.0.0.1:4402'
 export PORT=4402
 export AUTHWARD_ISSUER='https://auth.olaryn.com'
-export AUTHWARD_CLIENT_ID='<development client id>'
-export AUTHWARD_CLIENT_SECRET='<server-only development client secret>'
-export AUTHWARD_AUDIENCE='<resource identifier>'
+export AUTHWARD_CLIENT_ID='authward-demo-local'
+export AUTHWARD_AUDIENCE='https://demo.auth.olaryn.com'
 npm start
 ```
 
@@ -44,7 +45,9 @@ Keep real secrets outside Git, never paste them into an agent chat, and never ex
 | `/` | Product-branded entry, not an Authward-hosted login page |
 | `/login`, `/signup` | Product-owned interaction handoff and login method choices |
 | `/auth/start`, `/callback` | OAuth code + PKCE client flow, state and nonce through `openid-client` |
-| `/account` | Product account view and product-specific role |
+| `/demo` and `/demo/*` | Instant sample dashboard, orders, products and settings with clear **not authenticated** labeling |
+| `/app` and `/app/*` | Real protected dashboard accessible only after valid Authward code callback |
+| `/account` | Redirect to protected product account settings |
 | `/consent`, `/device` | Product-owned approval UX handing signed interactions back to Authward |
 | `/logout` | Local product-session logout example (not complete issuer logout) |
 
