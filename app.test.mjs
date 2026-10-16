@@ -13,34 +13,28 @@ after(async()=>{server.close();await once(server,'close');});
 const get=(route,options={})=>fetch(base+route,{redirect:'manual',...options});
 const csrfFrom=html=>/name="csrf" value="([^"]+)"/.exec(html)?.[1];
 
-test('app-owned login, signup, and account screens do not expose Authward branding',async()=>{
-  for(const route of ['/','/login','/signup']) {
-    const response=await get(route),body=await response.text();
+test('the entire demo is sign-in, without a fake SaaS dashboard or authenticated preview',async()=>{
+  for (const route of ['/','/login','/signup']) {
+    const response=await get(route),html=await response.text();
     assert.equal(response.status,200);
-    assert.match(body, /Nook Commerce/);
-    assert.doesNotMatch(body,/Sign in to Authward|Create an Authward account/);
+    assert.match(html, /Authward Demo/);
+    assert.match(html, /Continue with Google/);
+    assert.match(html, /Continue with GitHub/);
+    assert.match(html, /Sign in with a passkey/);
+    assert.match(html, /Continue with email/);
+    assert.match(html, /<svg aria-hidden="true"/);
+    assert.doesNotMatch(html, /Nook Commerce|Explore sample dashboard|Total revenue|Recent orders/);
   }
-  const visitorsDashboard=await get('/demo');
-  assert.equal(visitorsDashboard.status,200);
-  const sample=await visitorsDashboard.text();
-  assert.match(sample,/Exploring a sample workspace/);
-  assert.match(sample,/Total revenue/);
-  assert.match(sample,/Recent orders/);
-  const protectedDashboard=await get('/app');
-  assert.equal(protectedDashboard.status,303);
-  assert.equal(protectedDashboard.headers.get('location'),'/login');
-  for(const route of ['/app/orders','/app/products','/app/settings']){
-    const response=await get(route);
-    assert.equal(response.status,303);
-    assert.equal(response.headers.get('location'),'/login');
+  for (const route of ['/demo','/demo/orders']) {
+    const legacy=await get(route);
+    assert.equal(legacy.status,303);
+    assert.equal(legacy.headers.get('location'),'/');
   }
-  for(const route of ['/demo/orders','/demo/products','/demo/settings']){
-    const response=await get(route);
-    assert.equal(response.status,200);
-    assert.match(await response.text(),/Sample workspace|Sample store|Exploring a sample workspace/);
+  for (const route of ['/app','/app/orders','/app/products','/app/settings','/account']) {
+    const protectedPage=await get(route);
+    assert.equal(protectedPage.status,303);
+    assert.ok(['/login','/account'].includes(protectedPage.headers.get('location')));
   }
-  const account=await get('/account');
-  assert.equal(account.status,303);assert.equal(account.headers.get('location'),'/login');
 });
 
 test('fresh product-owned sign-in starts a first-party session for Authward handoff',async()=>{
@@ -53,8 +47,8 @@ test('fresh product-owned sign-in starts a first-party session for Authward hand
   assert.match(html,/Continue with Google/);
   assert.match(html,/Continue with GitHub/);
   assert.match(html,/Sign in with a passkey/);
-  assert.match(html,/Send a sign-in link/);
-  assert.match(html,/Welcome back/);
+  assert.match(html,/Send sign-in link/);
+  assert.match(html,/<h1>Sign in<\/h1>/);
   const csrf=csrfFrom(html);
   assert.ok(csrf,'first landing has a CSRF token');
   const action=await get('/auth/method',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',cookie},body:new URLSearchParams({csrf,method:'google'})});

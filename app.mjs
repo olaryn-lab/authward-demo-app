@@ -6,20 +6,18 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import * as oidc from 'openid-client';
-import { landing,signIn,workspace,errorPage,auxiliaryPage } from './ui.mjs';
+import { signIn,accountPage,errorPage,auxiliaryPage } from './ui.mjs';
 
 const env = process.env;
 const port = Number(env.PORT || 4402);
-const product = env.PRODUCT_NAME || 'Nook Commerce';
+const product = env.PRODUCT_NAME || 'Demo App';
 const origin = new URL(env.PRODUCT_ORIGIN || `http://127.0.0.1:${port}`);
 const issuer = env.AUTHWARD_ISSUER || 'https://auth.olaryn.com';
 const clientId = env.AUTHWARD_CLIENT_ID || 'authward-demo-local';
 const clientSecret = env.AUTHWARD_CLIENT_SECRET || '';
 const audience = env.AUTHWARD_AUDIENCE || 'https://demo.auth.olaryn.com';
-const clientKind = clientSecret ? 'confidential' : 'public';
 const securityEnabled = origin.protocol === 'https:';
 const transactions = new Map();
-const accounts = new Map();
 let configuration;
 
 function escape(s) {
@@ -79,16 +77,11 @@ function limitString(value,max=8192) {return typeof value==='string' && value.le
 const server=createServer(async(req,res)=>{
   const url=new URL(req.url || '/',origin);
   try {
-    if(url.pathname==='/' && req.method==='GET') return send(res,200,landing());
-    const previewRoute=url.pathname.match(/^\/demo(?:\/(orders|products|settings))?\/?$/);
-    if(previewRoute && req.method==='GET') {
-      return send(res,200,workspace({preview:true,section:previewRoute[1]||'overview'}));
-    }
-    const protectedRoute=url.pathname.match(/^\/app(?:\/(orders|products|settings))?\/?$/);
-    if(protectedRoute && req.method==='GET') {
-      const state=transaction(req);
-      if(!state?.entry.account) return redirect(res,'/login');
-      return send(res,200,workspace({preview:false,section:protectedRoute[1]||'overview',account:state.entry.account,csrf:state.entry.csrf}));
+    // One entry point: demonstrate authentication, not an invented SaaS.
+    if(url.pathname==='/' && req.method==='GET') return send(res,200,signIn());
+    if((url.pathname==='/demo' || url.pathname.startsWith('/demo/') ||
+        url.pathname==='/app' || url.pathname.startsWith('/app/')) && req.method==='GET') {
+      return redirect(res,url.pathname.startsWith('/app')?'/account':'/');
     }
     if(url.pathname==='/auth/start' && req.method==='GET') {
       if (!clientId) return bad(res,503,'Demo OAuth client ID is missing.');
@@ -96,7 +89,9 @@ const server=createServer(async(req,res)=>{
       const verifier=oidc.randomPKCECodeVerifier();
       const challenge=await oidc.calculatePKCECodeChallenge(verifier);
       const state=oidc.randomState();const nonce=token();
-      const {key}=newTransaction(res,{verifier,state,nonce,selectedMethod:url.searchParams.get('method')||''});
+      const method=url.searchParams.get('method')||'';
+      if(method && !['google','github','passkey','magic'].includes(method)) return bad(res,400,'Unsupported login method');
+      const {key}=newTransaction(res,{verifier,state,nonce,selectedMethod:method});
       const target=oidc.buildAuthorizationUrl(configuration,{
         redirect_uri:new URL('/callback',origin).href,response_type:'code',scope:'openid profile email',
         code_challenge:challenge,code_challenge_method:'S256',state,nonce,
@@ -119,6 +114,18 @@ const server=createServer(async(req,res)=>{
         state.entry.interactionQuery=incoming;
       }
       if(!state?.entry.interactionQuery) return send(res,200,signIn({mode:url.pathname==='/signup'?'signup':'login'}));
+      // The visitor already picked a provider before OAuth authorization.
+      // Authward's redirect back supplies the signed interaction envelope;
+      // resume that choice directly rather than forcing a second click.
+      const method=state.entry.selectedMethod;
+      if(method && ['google','github','passkey'].includes(method)) {
+        delete state.entry.selectedMethod;
+        const target=new URL('/interaction/login',issuer);
+        target.searchParams.set('interaction_query_b64',Buffer.from(incoming).toString('base64url'));
+        target.searchParams.set('action',method==='passkey'?'passkey':'social');
+        if(method!=='passkey') target.searchParams.set('provider',method);
+        return redirect(res,target.href);
+      }
       return send(res,200,signIn({mode:url.pathname==='/signup'?'signup':'login',interactive:true,csrf:state.entry.csrf,info:url.searchParams.get('sent')==='1'?'Check your email for the sign-in link.':''}));
     }
     if(url.pathname==='/auth/method' && req.method==='POST') {
@@ -145,26 +152,27 @@ const server=createServer(async(req,res)=>{
       });
       const claims=tokens.claims();
       if(!claims || typeof claims.sub!=='string' || !claims.sub) return bad(res,403,'Identity could not be verified');
-      // Production products keep their own tenant roles, not their own identity issuer.
-      const profile=accounts.get(claims.sub) || {sub:claims.sub,role:'member'};
-      accounts.set(claims.sub,profile);
-      flow.entry.account=profile;
+      // Only a verified authorization-code exchange establishes an account.
+      flow.entry.account={sub:claims.sub,
+        name:typeof claims.name==='string'?claims.name:'',
+        email:typeof claims.email==='string'?claims.email:'',
+      };
       flow.entry.accessToken=tokens.access_token;
       flow.entry.refreshToken=tokens.refresh_token;
       delete flow.entry.verifier; delete flow.entry.nonce; delete flow.entry.interactionQuery;
-      return redirect(res,'/app');
+      return redirect(res,'/account');
     }
     if(url.pathname==='/account') {
       const state=transaction(req);
       if(!state?.entry.account) return redirect(res,'/login');
-      return redirect(res,'/app/settings');
+      return send(res,200,accountPage(state.entry.account,state.entry.csrf));
     }
     if(url.pathname==='/logout' && req.method==='POST') {
       const form=await readForm(req),flow=confirmPost(req,res,form);if(!flow)return;
       transactions.delete(flow.key);
       // Demonstration clears the product session only. Production also revokes
       // Authward refresh credentials and implements issuer end-session logout.
-      return redirect(res,'/',cookie('',0));
+      return redirect(res,'/login',cookie('',0));
     }
     if(url.pathname==='/consent' && req.method==='GET') {
       const raw=limitString(url.searchParams.get('interaction_query'));
