@@ -18,6 +18,7 @@ test('the demo sign-in offers only four compact methods with recognizable SVG ic
   assert.match(page,/Powered by/);
   assert.match(page,/node cli\.mjs login/);
   assert.match(page,/Copy CLI login command/);
+  assert.match(page,/const button=e\.currentTarget/);
   assert.match(page,/no web server needed/);
 });
 
