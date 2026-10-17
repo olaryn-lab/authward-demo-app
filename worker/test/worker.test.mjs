@@ -289,6 +289,7 @@ test('native passkeys use same-origin BFF endpoints with session-bound one-time 
   assert.equal(guest.status,200);
   const html=await guest.text();
   assert.match(html,/navigator.credentials.get/);
+ assert.match(guest.headers.get('content-security-policy')||'',/connect-src 'self'/);
   const csrf=html.match(/data-csrf="([^"]+)"/)?.[1];
   const first=await send('/api/passkeys/authentication/options',body({},cookie(guest),csrf));
   assert.equal(first.status,200);

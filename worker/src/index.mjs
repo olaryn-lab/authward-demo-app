@@ -67,7 +67,7 @@ function headers(extra={}) {
   return {'cache-control': 'private, no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'strict-origin-when-cross-origin',
-    'content-security-policy': "default-src 'none'; base-uri 'none'; form-action 'self' https://auth.olaryn.com; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:",
+    'content-security-policy': "default-src 'none'; base-uri 'none'; connect-src 'self'; form-action 'self' https://auth.olaryn.com; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:",
     ...extra};
 }
 const html = (body, status=200, extra={}) => new Response(body,{status,headers:headers({'content-type':'text/html; charset=utf-8',...extra})});
