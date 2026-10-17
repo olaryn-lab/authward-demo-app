@@ -11,7 +11,7 @@ import { signIn, accountPage, consentPage, errorPage } from '../../ui.mjs';
 const cookieName = '__Host-authward_demo';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const audience = 'https://demo.auth.olaryn.com';
+const audience = 'https://demo-hosted.auth.olaryn.com';
 const defaultIssuer = 'https://auth.olaryn.com';
 const lifetimeSeconds = 15 * 60;
 const memory = new Map();

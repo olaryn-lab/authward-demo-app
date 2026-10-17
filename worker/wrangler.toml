@@ -7,7 +7,7 @@ workers_dev = true
 [vars]
 AUTHWARD_ISSUER = "https://auth.olaryn.com"
 AUTHWARD_CLIENT_ID = "authward-demo-hosted"
-AUTHWARD_AUDIENCE = "https://demo.auth.olaryn.com"
+AUTHWARD_AUDIENCE = "https://demo-hosted.auth.olaryn.com"
 # PUBLIC_ORIGIN is set to the EXACT deployed HTTPS URL using `wrangler secret put PUBLIC_ORIGIN`
 # SESSION_KEY is a separate 32-byte random AES-256 key, provided as base64url with no padding.
 # Neither value is an OAuth client secret. Never commit them to this public repository.

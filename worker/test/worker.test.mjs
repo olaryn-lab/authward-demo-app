@@ -64,7 +64,7 @@ test('Google and GitHub dispatch OIDC requests with exact redirect and PKCE',asy
   assert.equal(params.code_challenge_method,'S256');
   assert.equal(params.code_challenge,'challenge-value');
   assert.equal(params.state,'state-value');
-  assert.equal(params.resource,'https://demo.auth.olaryn.com');
+  assert.equal(params.resource,'https://demo-hosted.auth.olaryn.com');
  }
 });
 
