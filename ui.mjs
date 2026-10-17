@@ -66,9 +66,9 @@ export function signIn({mode='login',interactive=false,csrf='',info=''}={}) {
     <div class="providers">
       ${provider('google','Continue with Google',{interactive,csrf})}
       ${provider('github','Continue with GitHub',{interactive,csrf})}
-      <a class="provider" href="/passkeys/sign-in">${icons.passkey}<span>Sign in with a passkey</span></a>
+      <a class="provider" href="/auth/start?method=passkey">${icons.passkey}<span>Sign in with a passkey</span></a>
     </div>
-    <p class="hint">New to passkeys? <a href="/passkeys/setup">See how to set one up</a>.</p>
+    <p class="hint">Your device will ask for your passkey. <a href="/passkeys/sign-in">How it works</a> · <a href="/passkeys/setup">Set one up</a>.</p>
     <div class="divider">or continue with email</div>
     <form method="post" action="/auth/email"><label for="email">Email address</label><input type="email" name="email" id="email" placeholder="you@example.com" autocomplete="email" required><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="submit">${icons.email} Send sign-in link</button></form>
   </section>`,{showCli:true});

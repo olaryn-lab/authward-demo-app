@@ -9,7 +9,8 @@ test('product-owned login shows real provider actions and email submission form'
   assert.match(html,/method="post" action="\/auth\/email"/);
   assert.match(html,/name="csrf" value="csrf-example"/);
   assert.match(html,/Copy CLI login command/);
-  assert.match(html,/New to passkeys/);
+  assert.match(html,/Your device will ask for your passkey/);
+  assert.match(html,/href="\/auth\/start\?method=passkey"/);
   assert.match(html,/href="\/passkeys\/setup"/);
   assert.doesNotMatch(html,/Nook Commerce|Total revenue|Explore sample dashboard/);
 });
