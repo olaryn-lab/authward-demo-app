@@ -169,7 +169,12 @@ export function createWorker(client=oidc) {
           identity={...profile,...Object.fromEntries(Object.entries(claims).filter(([_,value])=>value!=null))};
         }
         const session={v:1,exp:Date.now()+lifetimeSeconds*1000,csrf:random(),
-          account:{sub:claims.sub,name:typeof identity.name==='string'?identity.name:'',email:typeof identity.email==='string'?identity.email:''}};
+          account:{sub:claims.sub,name:typeof identity.name==='string'?identity.name:'',email:typeof identity.email==='string'?identity.email:''},
+          // RP-initiated logout needs the ID token to bind the provider
+          // session to this relying party. Kept only in the encrypted,
+          // HttpOnly cookie, never HTML, logs, or a persistent database.
+          ...(typeof tokens.id_token==='string' && tokens.id_token.length<=2200
+            ? {idTokenHint:tokens.id_token} : {})};
         return redirect('/account',setCookie(await seal(session,env)));
       }
       if(req.method==='GET' && u.pathname==='/account'){
@@ -180,7 +185,19 @@ export function createWorker(client=oidc) {
         if(!current?.account||!sameOrigin(req,c.origin.origin))return errorHtml('Invalid logout request',403);
         const form=await formData(req);
         if(current.csrf!==form.get('csrf'))return errorHtml('Invalid logout request',403);
-        return redirect('/login',setCookie('',0));
+        // Clearing only this application's cookie leaves the Authward SSO
+        // session active, so the next sign-in silently authenticates. Use
+        // the provider's standard RP-initiated logout endpoint instead.
+        // Authward validates the id_token_hint and the exact registered
+        // post-logout redirect, terminates the central browser session, and
+        // navigates back to the demo's own login page. In the rare event
+        // that an ID token exceeded the cookie budget, Authward asks the
+        // user to confirm logout rather than silently leaving them signed in.
+        const cfg=await oidcConfig(c);
+        const params={post_logout_redirect_uri:new URL('/',c.origin).href,
+          ...(current.idTokenHint?{id_token_hint:current.idTokenHint}:{})};
+        const target=client.buildEndSessionUrl(cfg,params);
+        return redirect(target.href,setCookie('',0));
       }
       if(req.method==='GET' && u.pathname==='/consent'){
         const raw=u.searchParams.get('interaction_query')||'';

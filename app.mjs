@@ -149,7 +149,9 @@ export const server = createServer(async (req, res) => {
       const key = randomBytes(32).toString('base64url');
       sessions.delete(current.key);
       sessions.set(key, { expiresAt: Date.now()+15*60_000, account,
-        csrf: randomBytes(32).toString('base64url') });
+        csrf: randomBytes(32).toString('base64url'),
+        // Server-side only: never print ID tokens or expose them in HTML.
+        idTokenHint: typeof tokens.id_token==='string'?tokens.id_token:undefined });
       return redirect(res, '/account', sessionCookie(key));
     }
     if(url.pathname==='/consent' && req.method==='GET') {
@@ -187,8 +189,13 @@ export const server = createServer(async (req, res) => {
       if (!current?.account || !sameOriginPost(req) || form.get('csrf') !== current.csrf) {
         return html(res, 403, errorPage('Logout request expired or invalid.'));
       }
+      const cfg = await oidcConfig();
+      const target=oidc.buildEndSessionUrl(cfg,{
+        post_logout_redirect_uri:new URL('/',publicOrigin).href,
+        ...(current.idTokenHint?{id_token_hint:current.idTokenHint}:{})
+      });
       sessions.delete(current.key);
-      return redirect(res, '/', sessionCookie('', 0));
+      return redirect(res, target.href, sessionCookie('', 0));
     }
     return html(res, 404, errorPage('Page not found.'));
   } catch (error) {
