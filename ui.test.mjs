@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {signIn,accountPage,passkeySetupPage,passkeySignInPage,consentPage,errorPage} from './ui.mjs';
+import {signIn,accountPage,passkeySetupPage,passkeySignInPage,nativePasskeyPage,consentPage,errorPage} from './ui.mjs';
 
 test('product-owned login shows real provider actions and email submission form',()=>{
   const html=signIn({csrf:'csrf-example'});
@@ -9,8 +9,8 @@ test('product-owned login shows real provider actions and email submission form'
   assert.match(html,/method="post" action="\/auth\/email"/);
   assert.match(html,/name="csrf" value="csrf-example"/);
   assert.match(html,/Copy CLI login command/);
-  assert.match(html,/Your device will ask for your passkey/);
-  assert.match(html,/href="\/auth\/start\?method=passkey"/);
+  assert.match(html,/Your device will ask for your demo passkey/);
+  assert.match(html,/href="\/passkeys\/sign-in"/);
   assert.match(html,/href="\/passkeys\/setup"/);
   assert.doesNotMatch(html,/Nook Commerce|Total revenue|Explore sample dashboard/);
 });
@@ -48,4 +48,20 @@ test('passkey onboarding stays product-branded, then explains the secure Authwar
  assert.match(signin,/href="\/auth\/start\?method=passkey"/);
  assert.match(signin,/No passkey yet/);
  assert.match(accountPage({sub:'sub',email:'a@b.test'},'csrf',{passkeyAdded:true}),/Passkey added/);
+});
+
+test('native WebAuthn registration/sign-in stays on the product URL',()=>{
+  const setup=passkeySetupPage({signedIn:true,native:true});
+  assert.match(setup,/Create a demo passkey/);
+  assert.match(setup,/You stay on this site/);
+  assert.doesNotMatch(setup,/briefly on.*auth\.olaryn\.com/);
+  for(const mode of ['register','authenticate']){
+    const view=nativePasskeyPage({csrf:'signedCSRF',mode});
+    assert.match(view,/data-csrf="signedCSRF"/);
+    assert.match(view,/navigator\.credentials\.create|navigator\.credentials\.get/);
+    assert.match(view,/\/api\/passkeys\//);
+    assert.match(view,/Try passkey again|Try saving passkey again/);
+    assert.doesNotMatch(view,/\/auth\/start\?method=passkey/);
+    assert.doesNotMatch(view,/https:\/\/auth\.olaryn\.com\/sign-in/);
+  }
 });

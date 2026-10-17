@@ -19,7 +19,7 @@ function stub({idClaims={sub:'subject-42',email:'test@example.test',name:'Demo U
  };
  const worker=createWorker(client);
  const send=(path,init={},env=config)=>worker.fetch(new Request(`${origin}${path}`,init),env);
- return {worker,calls,send};
+ return {worker,client,calls,send};
 }
 const cookie=(response)=>response.headers.get('set-cookie')?.split(';')[0];
 
@@ -232,7 +232,7 @@ test('passkey guide is product-owned and enrollment requires an authenticated ap
  assert.match(await start.text(),/Sign in to add a passkey/);
  const signin=await send('/passkeys/sign-in');
  assert.equal(signin.status,200);
- assert.match(await signin.text(),/Choose a saved passkey/);
+ assert.match(await signin.text(),/navigator.credentials.get/);
  const denied=await send('/passkeys/enroll');
  assert.equal(denied.status,303);
  assert.equal(denied.headers.get('location'),'/login');
@@ -240,10 +240,89 @@ test('passkey guide is product-owned and enrollment requires an authenticated ap
  const callback=await send('/callback?code=valid&state=state-value',{headers:{cookie:cookie(oauth)}});
  const appCookie=cookie(callback);
  const guide=await send('/passkeys/setup',{headers:{cookie:appCookie}});
- assert.match(await guide.text(),/Continue to secure passkey setup/);
+ assert.match(await guide.text(),/Create a demo passkey/);
  const bridge=await send('/passkeys/enroll',{headers:{cookie:appCookie}});
- assert.equal(bridge.status,303);
- assert.equal(new URL(bridge.headers.get('location')).origin,'https://auth.olaryn.com');
- assert.equal(new URL(bridge.headers.get('location')).pathname,'/passkeys/enroll');
- assert.equal(new URL(bridge.headers.get('location')).searchParams.get('client_id'),'authward-demo-hosted');
+ assert.equal(bridge.status,200);
+ assert.match(await bridge.text(),/navigator.credentials.create/);
+});
+
+test('native passkeys use same-origin BFF endpoints with session-bound one-time challenges',async()=>{
+  const {client}=stub();const requests=[];
+  const backendFetch=async(url,init)=>{
+    const route=new URL(url).pathname;
+    const body=JSON.parse(init.body);
+    requests.push({route,origin:init.headers.origin,body});
+    if(route.endsWith('/options'))return Response.json({challengeId:'12345678-1234-1234-1234-123456789abc',
+      options:{challenge:'opaque-challenge',rpId:'authward-demo.pankaj4u4m.workers.dev'}});
+    if(route.endsWith('/registration/verify'))return Response.json({ok:true});
+    if(route.endsWith('/authentication/verify'))return Response.json({sub:'subject-42',email:'test@example.test',name:'Demo User'});
+    throw Error('Unknown test route');
+  };
+  const worker=createWorker(client,backendFetch);
+  const send=(path,init={})=>worker.fetch(new Request(origin+path,init),config);
+  const socialStart=await send('/auth/start?method=google');
+  const callback=await send('/callback?code=verified&state=state-value',{headers:{cookie:cookie(socialStart)}});
+  const accountCookie=cookie(callback);
+  const account=await send('/account',{headers:{cookie:accountCookie}});
+  const accountCsrf=(await account.text()).match(/name="csrf" value="([^"]+)"/)?.[1];
+  assert.ok(accountCsrf);
+  const guide=await send('/passkeys/enroll',{headers:{cookie:accountCookie}});
+  assert.equal(guide.status,200);
+  assert.match(await guide.text(),/navigator.credentials.create/);
+  assert.equal(new URL((await guide.url)||origin).origin,origin);
+  const body=(data,cookieValue,csrf=accountCsrf,sendOrigin=origin)=>({method:'POST',headers:{cookie:cookieValue,origin:sendOrigin,
+    'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(data)});
+  const forbidden=await send('/api/passkeys/registration/options',body({},accountCookie,accountCsrf,'https://attacker.example'));
+  assert.equal(forbidden.status,403);
+  const reg=await send('/api/passkeys/registration/options',body({},accountCookie));
+  assert.equal(reg.status,200);
+  assert.equal((await reg.json()).options.rpId,'authward-demo.pankaj4u4m.workers.dev');
+  const verified=await send('/api/passkeys/registration/verify',body({response:{id:'signed-credential'},label:'Phone'},cookie(reg)));
+  assert.equal(verified.status,200);
+  assert.deepEqual(await verified.json(),{ok:true});
+  assert.equal(requests[0].body.idToken,'signed.idtoken.hint');
+  assert.equal(requests[1].body.challengeId,'12345678-1234-1234-1234-123456789abc');
+  const replay=await send('/api/passkeys/registration/verify',body({response:{id:'signed-credential'}},cookie(verified)));
+  assert.equal(replay.status,403);
+  assert.equal(requests.length,2);
+  const guest=await send('/passkeys/sign-in');
+  assert.equal(guest.status,200);
+  const html=await guest.text();
+  assert.match(html,/navigator.credentials.get/);
+  const csrf=html.match(/data-csrf="([^"]+)"/)?.[1];
+  const first=await send('/api/passkeys/authentication/options',body({},cookie(guest),csrf));
+  assert.equal(first.status,200);
+  const signed=await send('/api/passkeys/authentication/verify',body({response:{id:'signed-credential'}},cookie(first),csrf));
+  assert.equal(signed.status,200);
+  assert.deepEqual(await signed.json(),{ok:true});
+  const user=await send('/account',{headers:{cookie:cookie(signed)}});
+  const accountHtml=await user.text();
+  assert.match(accountHtml,/test@example\.test/);
+  const userCsrf=accountHtml.match(/name="csrf" value="([^"]+)"/)?.[1];
+  const signout=await send('/logout',form({csrf:userCsrf},cookie(signed)));
+  assert.equal(signout.status,303);
+  assert.equal(signout.headers.get('location'),'/login');
+  assert.equal(requests.length,4);
+  assert.ok(requests.every(x=>x.origin===origin));
+  assert.ok(requests.every(x=>x.route.startsWith('/v1/native-passkeys/')));
+});
+
+test('native passkey login never grants a session before Authward verification succeeds',async()=>{
+  const {client}=stub();
+  const worker=createWorker(client,async(url)=>{
+    if(String(url).endsWith('/options'))return Response.json({challengeId:'12345678-1234-1234-1234-123456789abc',options:{challenge:'one-time'}});
+    return Response.json({error:'Signature invalid'},{status:403});
+  });
+  const send=(path,init={})=>worker.fetch(new Request(origin+path,init),config);
+  const page=await send('/passkeys/sign-in');
+  const csrf=(await page.text()).match(/data-csrf="([^"]+)"/)?.[1];
+  const body=(cookieValue,response)=>({method:'POST',headers:{cookie:cookieValue,origin,'content-type':'application/json',
+    'x-csrf-token':csrf},body:JSON.stringify(response)});
+  const start=await send('/api/passkeys/authentication/options',body(cookie(page),{}));
+  assert.equal(start.status,200);
+  const failed=await send('/api/passkeys/authentication/verify',body(cookie(start),{response:{id:'invalid'}}));
+  assert.equal(failed.status,403);
+  assert.match((await failed.json()).error,/Signature invalid/);
+  assert.equal(failed.headers.get('set-cookie'),null);
+  assert.equal((await send('/account',{headers:{cookie:cookie(start)}})).headers.get('location'),'/login');
 });

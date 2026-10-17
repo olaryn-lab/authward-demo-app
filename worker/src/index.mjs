@@ -6,13 +6,14 @@
  * Encrypted, short-lived, host-only cookies work across all edge isolates.
  */
 import * as oidc from 'openid-client';
-import { signIn, accountPage, passkeySetupPage, passkeySignInPage, consentPage, errorPage } from '../../ui.mjs';
+import { signIn, accountPage, passkeySetupPage, passkeySignInPage, nativePasskeyPage, consentPage, errorPage } from '../../ui.mjs';
 
 const cookieName = '__Host-authward_demo';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const audience = 'https://demo-hosted.auth.olaryn.com';
 const defaultIssuer = 'https://auth.olaryn.com';
+const nativeApiPrefix='/v1/native-passkeys/';
 const lifetimeSeconds = 15 * 60;
 const memory = new Map();
 
@@ -87,6 +88,25 @@ function configured(env) {
 function sameOrigin(req, origin) {
   return req.headers.get('origin') === origin || (!req.headers.has('origin') && req.headers.get('sec-fetch-site') === 'same-origin');
 }
+async function nativeAuthwardCall(c,endpoint,data,backendFetch=fetch){
+  // Server-to-server only. Never expose the Authward identity assertion, even
+  // to the browser that initiates navigator.credentials.* on the product URL.
+  if(c.issuer!==defaultIssuer || c.clientId!=='authward-demo-hosted')throw Error('Native demo issuer/client mismatch');
+  const url=new URL(nativeApiPrefix+endpoint,c.issuer);
+  const response=await backendFetch(url,{method:'POST',headers:{'content-type':'application/json','origin':c.origin.origin},
+    body:JSON.stringify(data),redirect:'error'});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw Object.assign(Error(typeof result.error==='string'?result.error:'Passkey verification unavailable'),{status:response.status});
+  return result;
+}
+async function jsonBody(req){
+  if(req.headers.get('content-type')?.split(';')[0]!=='application/json')throw Error('JSON request required');
+  const raw=await req.text();
+  if(raw.length>23000)throw Error('Passkey response too large');
+  return JSON.parse(raw);
+}
+const jsonResponse=(value,status=200,extra={})=>new Response(JSON.stringify(value),{status,
+  headers:headers({'content-type':'application/json; charset=utf-8',...extra})});
 async function formData(req) {
   const type=req.headers.get('content-type')||'';
   if(!type.startsWith('application/x-www-form-urlencoded'))throw Error('Unexpected content type');
@@ -96,7 +116,7 @@ async function formData(req) {
 }
 function validEmail(email) { return typeof email === 'string' && email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email); }
 
-export function createWorker(client=oidc) {
+export function createWorker(client=oidc,backendFetch=fetch) {
   const discoveryCache = new Map();
   async function oidcConfig(c) {
     const key=`${c.issuer}|${c.clientId}`;
@@ -178,14 +198,60 @@ export function createWorker(client=oidc) {
         return redirect('/account',setCookie(await seal(session,env)));
       }
       if(req.method==='GET' && u.pathname==='/passkeys/setup')
-        return html(passkeySetupPage({signedIn:Boolean(current?.account)}));
-      if(req.method==='GET' && u.pathname==='/passkeys/sign-in')
-        return html(passkeySignInPage());
+        return html(passkeySetupPage({signedIn:Boolean(current?.account),native:true}));
+      if(req.method==='GET' && u.pathname==='/passkeys/sign-in') {
+        if(current?.account)return redirect('/account');
+        const flow=current||{v:1,exp:Date.now()+lifetimeSeconds*1000,csrf:random()};
+        return html(nativePasskeyPage({csrf:flow.csrf,mode:'authenticate'}),200,
+          current?{}:{'set-cookie':setCookie(await seal(flow,env))});
+      }
       if(req.method==='GET' && u.pathname==='/passkeys/enroll') {
         if(!current?.account)return redirect('/login');
-        const bridge=new URL('/passkeys/enroll',c.issuer);
-        bridge.searchParams.set('client_id',c.clientId);
-        return redirect(bridge.href);
+        if(!current.idTokenHint)return errorHtml('Sign in with Google or GitHub first to register a new demo passkey.',403);
+        return html(nativePasskeyPage({csrf:current.csrf,mode:'register'}));
+      }
+      if(req.method==='POST' && u.pathname.startsWith('/api/passkeys/')) {
+        try {
+        if(!current?.csrf || !sameOrigin(req,c.origin.origin) || req.headers.get('x-csrf-token')!==current.csrf)
+          return jsonResponse({error:'Passkey session expired. Return to sign in.'},403);
+        const route=u.pathname.slice('/api/passkeys/'.length);
+        if(!['registration/options','registration/verify','authentication/options','authentication/verify'].includes(route))
+          return jsonResponse({error:'Unsupported passkey action'},404);
+        const body=await jsonBody(req);
+        const registration=route.startsWith('registration/');
+        if(registration && (!current.account || !current.idTokenHint))
+          return jsonResponse({error:'Sign in with Google or GitHub before registering a passkey'},403);
+        if(route.endsWith('/options')) {
+          const result=await nativeAuthwardCall(c,route,
+            registration?{idToken:current.idTokenHint}:{},backendFetch);
+          const next={...current,passkeyChallenge:{id:result.challengeId,
+            kind:registration?'registration':'authentication',created:Date.now()}};
+          return jsonResponse({options:result.options},200,{'set-cookie':setCookie(await seal(next,env))});
+        }
+        const expected=registration?'registration':'authentication';
+        if(current.passkeyChallenge?.kind!==expected || !current.passkeyChallenge?.id ||
+          current.passkeyChallenge.created<Date.now()-5*60_000)
+          return jsonResponse({error:'Passkey challenge expired. Try again.'},403);
+        // Authward consumes the challenge atomically. Removing local challenge
+        // prevents accidentally reusing it across other browser pages.
+        const proof=await nativeAuthwardCall(c,route,{
+          challengeId:current.passkeyChallenge.id,response:body.response,
+          ...(registration?{idToken:current.idTokenHint,label:body.label}:{}),
+        },backendFetch);
+        if(registration){
+          const {passkeyChallenge:_used,...next}=current;
+          return jsonResponse({ok:true},200,{'set-cookie':setCookie(await seal(next,env))});
+        }
+        if(typeof proof.sub!=='string' || !proof.sub || typeof proof.email!=='string')
+          throw Error('Invalid verified passkey identity');
+        const next={v:1,exp:Date.now()+lifetimeSeconds*1000,csrf:random(),nativePasskey:true,
+          account:{sub:proof.sub,email:proof.email,name:typeof proof.name==='string'?proof.name:''}};
+        return jsonResponse({ok:true},200,{'set-cookie':setCookie(await seal(next,env))});
+        } catch(error) {
+          const message=error instanceof Error?error.message:'Passkey verification failed';
+          const status=[400,401,403,404,429].includes(error?.status)?error.status:502;
+          return jsonResponse({error:status===502?'Passkey verification temporarily unavailable':message},status);
+        }
       }
       if(req.method==='GET' && u.pathname==='/account'){
         if(!current?.account)return redirect('/login');
@@ -204,6 +270,7 @@ export function createWorker(client=oidc) {
         // navigates back to the demo's own login page. In the rare event
         // that an ID token exceeded the cookie budget, Authward asks the
         // user to confirm logout rather than silently leaving them signed in.
+        if(current.nativePasskey) return redirect('/login',setCookie('',0));
         const cfg=await oidcConfig(c);
         const params={post_logout_redirect_uri:new URL('/',c.origin).href,
           ...(current.idTokenHint?{id_token_hint:current.idTokenHint}:{})};

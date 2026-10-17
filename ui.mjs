@@ -66,9 +66,9 @@ export function signIn({mode='login',interactive=false,csrf='',info=''}={}) {
     <div class="providers">
       ${provider('google','Continue with Google',{interactive,csrf})}
       ${provider('github','Continue with GitHub',{interactive,csrf})}
-      <a class="provider" href="/auth/start?method=passkey">${icons.passkey}<span>Sign in with a passkey</span></a>
+      <a class="provider" href="/passkeys/sign-in">${icons.passkey}<span>Sign in with a passkey</span></a>
     </div>
-    <p class="hint">Your device will ask for your passkey. <a href="/passkeys/sign-in">How it works</a> · <a href="/passkeys/setup">Set one up</a>.</p>
+    <p class="hint">Your device will ask for your demo passkey. <a href="/passkeys/sign-in">How it works</a> · <a href="/passkeys/setup">Set one up</a>.</p>
     <div class="divider">or continue with email</div>
     <form method="post" action="/auth/email"><label for="email">Email address</label><input type="email" name="email" id="email" placeholder="you@example.com" autocomplete="email" required><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="submit">${icons.email} Send sign-in link</button></form>
   </section>`,{showCli:true});
@@ -84,14 +84,14 @@ export function accountPage(account, csrf, {passkeyAdded=false}={}) {
   </section>`);
 }
 
-export function passkeySetupPage({signedIn=false}={}) {
+export function passkeySetupPage({signedIn=false,native=false}={}) {
   return page('Set up a passkey',`<section class="card"><h1>Set up a passkey</h1>
     <p class="sub">Sign in next time with your fingerprint, face unlock, device PIN, or password manager.</p>
     <ol class="guide-steps"><li><strong>Sign in first.</strong> Use Google or GitHub to prove this is your account.</li>
     <li><strong>Save your passkey.</strong> Your device or password manager will ask where to save it.</li>
     <li><strong>Try it next time.</strong> Choose “Sign in with a passkey” on this demo.</li></ol>
-    <p class="notice">For security, the device prompt opens briefly on <strong>auth.olaryn.com</strong>, the domain that issues your passkey. You will return here afterward. This does not grant Authward workspace access.</p>
-    <a class="submit" style="text-decoration:none" href="${signedIn?'/passkeys/enroll':'/login'}">${signedIn?'Continue to secure passkey setup':'Sign in to add a passkey'}</a>
+    <p class="notice">${native?'Your passkey will be registered for <strong>this demo application</strong>. You stay on this site; Authward verifies the credential securely in the background.':'For security, the device prompt opens briefly on <strong>auth.olaryn.com</strong>, the domain that issues your passkey. You will return here afterward. This does not grant Authward workspace access.'}</p>
+    <a class="submit" style="text-decoration:none" href="${signedIn?'/passkeys/enroll':'/login'}">${signedIn?(native?'Create a demo passkey':'Continue to secure passkey setup'):'Sign in to add a passkey'}</a>
     <a class="secondary" style="margin-top:12px" href="${signedIn?'/account':'/login'}">${signedIn?'Back to account':'Back to sign in'}</a>
   </section>`);
 }
@@ -126,4 +126,78 @@ export function errorPage(message='Please try again.') {
 
 export function auxiliaryPage(title, content) {
   return page(title,`<section class="card compact"><h1>${escapeHtml(title)}</h1><div class="auth-flow">${content}</div></section>`);
+}
+
+// Product-domain native WebAuthn. The challenge/verification server remains
+// Authward, but `navigator.credentials.*` executes on this application's URL.
+const nativePasskeyJavaScript=`
+const status=document.querySelector('#passkey-status');
+const action=document.querySelector('#passkey-retry');
+const mode=document.querySelector('[data-passkey-mode]')?.dataset.passkeyMode;
+const csrf=document.querySelector('[data-passkey-mode]')?.dataset.csrf;
+const decode=value=>Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4)),c=>c.charCodeAt(0));
+const encode=value=>{let s='';for(const b of new Uint8Array(value))s+=String.fromCharCode(b);return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'')};
+function optionsJSON(options,registration){
+  const o={...options,challenge:decode(options.challenge)};
+  if(registration){o.user={...options.user,id:decode(options.user.id)};
+    o.excludeCredentials=(options.excludeCredentials||[]).map(v=>({...v,id:decode(v.id)}))}
+  else{o.allowCredentials=(options.allowCredentials||[]).map(v=>({...v,id:decode(v.id)}))}
+  return o;
+}
+function credentialJSON(credential,registration){
+  if(typeof credential.toJSON==='function')return credential.toJSON();
+  const response=registration?{
+    clientDataJSON:encode(credential.response.clientDataJSON),attestationObject:encode(credential.response.attestationObject),
+    transports:credential.response.getTransports?.()||[]
+  }: {clientDataJSON:encode(credential.response.clientDataJSON),authenticatorData:encode(credential.response.authenticatorData),
+    signature:encode(credential.response.signature),userHandle:credential.response.userHandle?encode(credential.response.userHandle):null};
+  return {id:credential.id,rawId:encode(credential.rawId),type:'public-key',response,
+    clientExtensionResults:credential.getClientExtensionResults?.()||{}};
+}
+async function post(endpoint,body){
+  const response=await fetch('/api/passkeys/'+endpoint,{method:'POST',credentials:'same-origin',
+    headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(body)});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw Error(data.error||'Passkey request failed');
+  return data;
+}
+let running=false;
+async function run(){
+  if(running)return;
+  if(!window.PublicKeyCredential||!navigator.credentials){status.textContent='Passkeys are not supported in this browser. Try Chrome or another sign-in method.';action.hidden=false;return}
+  running=true;action.hidden=true;status.textContent='Waiting for your device or password manager…';status.dataset.error='false';
+  try{
+    const registration=mode==='register';
+    const label=registration?document.querySelector('#passkey-name')?.value.trim()||'':'';
+    const challenge=await post(registration?'registration/options':'authentication/options',{});
+    const publicKey=optionsJSON(challenge.options,registration);
+    const credential=await (registration?navigator.credentials.create({publicKey}):navigator.credentials.get({publicKey}));
+    if(!credential)throw Object.assign(Error('Cancelled'),{name:'NotAllowedError'});
+    const verified=await post(registration?'registration/verify':'authentication/verify',
+      {response:credentialJSON(credential,registration),...(label?{label}:{})});
+    if(!verified.ok)throw Error('Passkey was not verified');
+    status.textContent='Passkey verified. Opening your account…';
+    location.replace('/account'+(registration?'?passkey=added':''));
+  }catch(error){
+    const cancelled=['NotAllowedError','AbortError'].includes(error?.name);
+    status.textContent=cancelled?'Passkey prompt cancelled. You can try again.':error instanceof Error?error.message:'Passkey verification failed';
+    status.dataset.error='true';action.hidden=false;
+  }finally{running=false}
+}
+action.addEventListener('click',()=>void run());
+void run();
+`;
+
+export function nativePasskeyPage({csrf='',mode='authenticate'}={}) {
+  const registering=mode==='register';
+  return page(registering?'Create a passkey':'Sign in with a passkey',
+    `<section class="card" data-passkey-mode="${registering?'register':'authenticate'}" data-csrf="${escapeHtml(csrf)}">
+      <h1>${registering?'Create your passkey':'Sign in with your passkey'}</h1>
+      <p class="sub">${registering?'Save a passkey on this device or in your password manager.':'Your device or password manager should show your saved passkeys now.'}</p>
+      ${registering?'<label for="passkey-name">Name (optional)</label><input id="passkey-name" maxlength="80" placeholder="My phone" autocomplete="off">':''}
+      <p class="notice">Your passkey belongs to <strong>this demo application</strong>, not the Authward developer workspace. Verification happens securely without leaving this page.${registering?'':' Passkeys previously created for auth.olaryn.com are not transferable—set up a new demo passkey first.'}</p>
+      <p id="passkey-status" role="status" aria-live="polite">Preparing secure verification…</p>
+      <button id="passkey-retry" class="submit" type="button" hidden>${registering?'Try saving passkey again':'Try passkey again'}</button>
+      <a class="secondary" href="${registering?'/account':'/login'}">${registering?'Back to account':'Use another sign-in method'}</a>
+    </section><script>${nativePasskeyJavaScript}</script>`);
 }
