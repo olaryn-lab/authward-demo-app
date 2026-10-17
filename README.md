@@ -1,5 +1,7 @@
 # Authward Demo App
 
+**[Open the live Authward demo](https://authward-demo.pankaj4u4m.workers.dev)** — runs in your browser on Cloudflare Workers; no installation or local Authward server required. Google/GitHub login, email magic links and passkeys are handled by production Authward; the demo owns its login and account UI. Localhost remains supported below.
+
 **A small, product-owned login UI using hosted [Authward](https://auth.olaryn.com) for real authentication.** This is the reference for the Beseam/Trevra integration boundary—not a simulated SaaS application, a second identity provider, or a self-hosted Authward server.
 
 ## Who owns what?
@@ -76,7 +78,7 @@ The full production contract, security guidance, resource-level `interactionBase
 
 ## Public live demo on Cloudflare Workers
 
-A Cloudflare Worker can serve this same product-owned login UI and handle the OIDC callback and a secure session for anyone with a browser—without requiring visitors to start a local server. **This is preferable to GitHub Pages**, which cannot run the required backend. The worker uses the same production Authward issuer and a separate **public PKCE client**, so there is **no OAuth client secret** to publish.
+The [live Cloudflare Worker](https://authward-demo.pankaj4u4m.workers.dev) serves this same product-owned login UI and handles OIDC callback and encrypted sessions for anyone with a browser—without requiring visitors to start a local server. **This is preferable to GitHub Pages**, which cannot run the required backend. The worker uses the same production Authward issuer and a separate **public PKCE client**, so there is **no OAuth client secret** to publish.
 
 The Worker uses a 32-byte random `SESSION_KEY` for AES-256-GCM encrypted, short-lived, HttpOnly + Secure + SameSite=Lax cookie sessions across Cloudflare isolates. This is a **private deployment secret**, not an OAuth client secret; keep it stable between deployments. It also needs its exact public HTTPS `PUBLIC_ORIGIN`. No Cloudflare KV/D1 database is needed for the reference app. A production app should add revocable/durable sessions, monitoring, and abuse controls.
 
@@ -88,4 +90,4 @@ The Worker uses a 32-byte random `SESSION_KEY` for AES-256-GCM encrypted, short-
 4. Run the GitHub Actions **Publish Authward live demo (Cloudflare Worker)** workflow. It validates the repo, builds the Worker, deploys, installs the existing session key, and checks `/healthz`. You may also run `npm run worker:build` and `npm run worker:dev` locally with your own *ignored* `worker/.dev.vars` file. Do not deploy using unregistered callback origins.
 5. Browser acceptance: verify Google/GitHub redirects, real email magic-link receipt and continuation, passkey behavior, the authenticated `/account` callback, consent, logout, and both localhost and hosted flows. A healthy Worker response alone does **not** prove a working login.
 
-The GitHub deployment workflow is **manual until** the Cloudflare account, exact URL, Authward client, and encrypted-session secret are configured. Then it can be switched to automatic deployments on `main`. The Worker uses its dedicated audience `https://demo-hosted.auth.olaryn.com`; the localhost demo keeps `https://demo.auth.olaryn.com`. A hosted public demo must never use a shared client secret or receive Beseam/Trevra/LemonCrow API scopes.
+The Worker is deployed and configured for `https://authward-demo.pankaj4u4m.workers.dev`; the separate Authward hosted client is registered. The GitHub deployment workflow remains **manual until** a least-privilege Cloudflare API token is installed as `CLOUDFLARE_API_TOKEN` in GitHub Secrets. Local Wrangler can currently deploy through an authenticated Cloudflare session. Then it can be switched to automatic deployments on `main`. The Worker uses its dedicated audience `https://demo-hosted.auth.olaryn.com`; the localhost demo keeps `https://demo.auth.olaryn.com`. A hosted public demo must never use a shared client secret or receive Beseam/Trevra/LemonCrow API scopes.
