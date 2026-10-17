@@ -133,10 +133,18 @@ export const server = createServer(async (req, res) => {
       if (!claims || typeof claims.sub !== 'string' || !claims.sub) {
         return html(res, 403, errorPage('Authward did not return a verified identity.'));
       }
+      // The email/profile scopes may be returned from UserInfo rather than
+      // repeated in the ID token. Bind the response to the verified subject.
+      let identity = claims;
+      if ((!claims.email || !claims.name) && typeof tokens.access_token === 'string') {
+        const profile = await oidc.fetchUserInfo(cfg, tokens.access_token, claims.sub);
+        if (profile.sub !== claims.sub) throw Error('UserInfo subject mismatch');
+        identity = {...profile,...Object.fromEntries(Object.entries(claims).filter(([,value])=>value!=null))};
+      }
       const account = {
         sub: claims.sub,
-        name: typeof claims.name === 'string' ? claims.name : '',
-        email: typeof claims.email === 'string' ? claims.email : '',
+        name: typeof identity.name === 'string' ? identity.name : '',
+        email: typeof identity.email === 'string' ? identity.email : '',
       };
       const key = randomBytes(32).toString('base64url');
       sessions.delete(current.key);

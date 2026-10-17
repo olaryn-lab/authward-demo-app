@@ -5,7 +5,7 @@ import {createWorker} from '../src/index.mjs';
 
 const origin='https://authward-demo.example.test';
 const config={PUBLIC_ORIGIN:origin,SESSION_KEY:randomBytes(32).toString('base64url'),AUTHWARD_CLIENT_ID:'authward-demo-hosted'};
-function stub() {
+function stub({idClaims={sub:'subject-42',email:'test@example.test',name:'Demo User'},profile={sub:'subject-42',email:'test@example.test',name:'Demo User'}}={}) {
  const calls=[];
  const client={
    async discovery(url,id){calls.push({action:'discovery',issuer:String(url),id});return {fixture:true};},
@@ -13,7 +13,8 @@ function stub() {
    randomState(){return 'state-value';},
    async calculatePKCECodeChallenge(verifier){assert.equal(verifier,'pkce-verifier');return 'challenge-value';},
    buildAuthorizationUrl(_cfg,params){calls.push({action:'authorize',params});return new URL('https://auth.olaryn.com/api/auth/oauth2/authorize?response_type=code');},
-   async authorizationCodeGrant(_cfg,url,options){calls.push({action:'token',url:String(url),options});return {claims:()=>({sub:'subject-42',email:'test@example.test',name:'Demo User'})};},
+   async authorizationCodeGrant(_cfg,url,options){calls.push({action:'token',url:String(url),options});return {access_token:'private-access-token',claims:()=>idClaims};},
+   async fetchUserInfo(_cfg,accessToken,expectedSubject){calls.push({action:'userinfo',expectedSubject});assert.equal(accessToken,'private-access-token');return profile;},
  };
  const worker=createWorker(client);
  const send=(path,init={},env=config)=>worker.fetch(new Request(`${origin}${path}`,init),env);
@@ -126,5 +127,49 @@ test('tampered cookie is rejected and consent request uses Authward one-time con
  assert.equal(url.pathname,'/interaction/consent');
  assert.equal(url.searchParams.get('confirmation'),'one-time-token');
  assert.equal(Buffer.from(url.searchParams.get('interaction_query_b64'),'base64url').toString(),raw);
- assert.match(resp.headers.get('set-cookie'),/Max-Age=0/);
+ assert.match(resp.headers.get('set-cookie'),/Max-Age=900/);
+ const afterConsent=await send('/auth/consent',form({csrf,decision:'allow'},cookie(resp)));
+ assert.equal(afterConsent.status,403);
+});
+
+test('approval preserves PKCE across consent and callback establishes the account',async()=>{
+ const {send,calls}=stub();
+ const start=await send('/auth/start?method=google');
+ assert.equal(start.status,303);
+ const raw='client_id=authward-demo-hosted&scope=openid%20email&sig=opaque';
+ const approval=await send('/consent?interaction_query='+encodeURIComponent(raw)+'&confirmation=one-time-token',
+   {headers:{cookie:cookie(start)}});
+ const html=await approval.text();
+ const csrf=html.match(/name="csrf" value="([^"]+)"/)?.[1];
+ const consent=await send('/auth/consent',form({csrf,decision:'allow'},cookie(approval)));
+ assert.equal(consent.status,303);
+ // Simulate Authward's signed confirmation, upstream OAuth completion, then callback.
+ const callback=await send('/callback?code=authorized&state=state-value',{headers:{cookie:cookie(consent)}});
+ assert.equal(callback.status,303);
+ assert.equal(callback.headers.get('location'),'/account');
+ const account=await send('/account',{headers:{cookie:cookie(callback)}});
+ assert.equal(account.status,200);
+ assert.match(await account.text(),/test@example\.test/);
+ assert.equal(calls.filter(x=>x.action==='token').length,1);
+});
+
+test('uses subject-bound UserInfo when ID token does not include email or name',async()=>{
+ const {send,calls}=stub({idClaims:{sub:'subject-42'}});
+ const start=await send('/auth/start?method=github');
+ const callback=await send('/callback?code=authorized&state=state-value',{headers:{cookie:cookie(start)}});
+ assert.equal(callback.status,303);
+ assert.equal(calls.filter(x=>x.action==='userinfo').length,1);
+ assert.equal(calls.find(x=>x.action==='userinfo').expectedSubject,'subject-42');
+ const account=await send('/account',{headers:{cookie:cookie(callback)}});
+ const view=await account.text();
+ assert.match(view,/test@example\.test/);
+ assert.match(view,/Demo User/);
+});
+
+test('rejects conflicting UserInfo subject before establishing an account',async()=>{
+ const {send}=stub({idClaims:{sub:'subject-42'},profile:{sub:'someone-else',email:'wrong@example.test'}});
+ const start=await send('/auth/start?method=google');
+ const callback=await send('/callback?code=authorized&state=state-value',{headers:{cookie:cookie(start)}});
+ assert.equal(callback.status,502);
+ assert.equal(callback.headers.get('set-cookie'),null);
 });

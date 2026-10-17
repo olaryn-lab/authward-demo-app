@@ -159,8 +159,17 @@ export function createWorker(client=oidc) {
           pkceCodeVerifier:current.pkceCodeVerifier,expectedState:current.state,expectedNonce:current.nonce});
         const claims=tokens.claims?.();
         if(!claims || typeof claims.sub!=='string' || !claims.sub)return errorHtml('No verified identity was returned',403);
+        // OIDC intentionally doesn't promise profile/email in ID tokens. The
+        // userinfo endpoint serves the scopes granted to this OAuth client.
+        // openid-client binds its response to the verified ID-token `sub`.
+        let identity=claims;
+        if((!claims.email || !claims.name) && typeof tokens.access_token==='string') {
+          const profile=await client.fetchUserInfo(cfg,tokens.access_token,claims.sub);
+          if(profile.sub!==claims.sub)throw Error('UserInfo subject mismatch');
+          identity={...profile,...Object.fromEntries(Object.entries(claims).filter(([_,value])=>value!=null))};
+        }
         const session={v:1,exp:Date.now()+lifetimeSeconds*1000,csrf:random(),
-          account:{sub:claims.sub,name:typeof claims.name==='string'?claims.name:'',email:typeof claims.email==='string'?claims.email:''}};
+          account:{sub:claims.sub,name:typeof identity.name==='string'?identity.name:'',email:typeof identity.email==='string'?identity.email:''}};
         return redirect('/account',setCookie(await seal(session,env)));
       }
       if(req.method==='GET' && u.pathname==='/account'){
@@ -192,8 +201,12 @@ export function createWorker(client=oidc) {
         target.searchParams.set('interaction_query_b64',b64url(encoder.encode(current.pendingConsent.raw)));
         target.searchParams.set('confirmation',current.pendingConsent.confirmation);
         target.searchParams.set('decision',form.get('decision'));
-        // Authward's signed one-time confirmation is the replay boundary.
-        return redirect(target.href,setCookie('',0));
+        // Preserve OAuth state + PKCE across consent. Clearing this cookie
+        // discards the pending authorization and makes the callback fail, even
+        // though the user approved successfully. Remove only consent metadata;
+        // Authward's signed one-time confirmation prevents decision replay.
+        const {pendingConsent:_consumed,...ongoing}=current;
+        return redirect(target.href,setCookie(await seal(ongoing,env)));
       }
       return errorHtml('Page not found',404);
     } catch (e) {
