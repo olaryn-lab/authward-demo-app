@@ -88,12 +88,12 @@ function configured(env) {
 function sameOrigin(req, origin) {
   return req.headers.get('origin') === origin || (!req.headers.has('origin') && req.headers.get('sec-fetch-site') === 'same-origin');
 }
-async function nativeAuthwardCall(c,endpoint,data,backendFetch=fetch){
+async function nativeAuthwardCall(c,endpoint,data,backendFetch=(url,init)=>fetch(url,init)){
   // Server-to-server only. Never expose the Authward identity assertion, even
   // to the browser that initiates navigator.credentials.* on the product URL.
   if(c.issuer!==defaultIssuer || c.clientId!=='authward-demo-hosted')throw Error('Native demo issuer/client mismatch');
   const url=new URL(nativeApiPrefix+endpoint,c.issuer);
-  const response=await backendFetch(url,{method:'POST',headers:{'content-type':'application/json','origin':c.origin.origin},
+  const response=await backendFetch(url.href,{method:'POST',headers:{'content-type':'application/json','origin':c.origin.origin},
     body:JSON.stringify(data),redirect:'error'});
   const result=await response.json().catch(()=>({}));
   if(!response.ok)throw Object.assign(Error(typeof result.error==='string'?result.error:'Passkey verification unavailable'),{status:response.status});
@@ -116,7 +116,7 @@ async function formData(req) {
 }
 function validEmail(email) { return typeof email === 'string' && email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email); }
 
-export function createWorker(client=oidc,backendFetch=fetch) {
+export function createWorker(client=oidc,backendFetch=(url,init)=>fetch(url,init)) {
   const discoveryCache = new Map();
   async function oidcConfig(c) {
     const key=`${c.issuer}|${c.clientId}`;
@@ -253,6 +253,7 @@ export function createWorker(client=oidc,backendFetch=fetch) {
           // Do not log credential responses, identity tokens, or challenge data.
           if(status===502)console.error('Native passkey BFF failed',{
             errorName:error instanceof Error?error.name:'UnknownError',
+            reason:error instanceof Error?error.message.slice(0,160):'Unknown',
             upstreamStatus:typeof error?.status==='number'?error.status:null,
             causeName:error?.cause instanceof Error?error.cause.name:null,
           });
