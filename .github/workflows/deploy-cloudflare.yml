@@ -1,0 +1,45 @@
+name: Publish Authward live demo (Cloudflare Worker)
+
+# First deployment must be explicitly approved: the Authward OIDC redirect
+# URI must be registered for the exact deployed worker origin.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: cloudflare-demo
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SESSION_KEY: ${{ secrets.AUTHWARD_DEMO_SESSION_KEY }}
+      PUBLIC_ORIGIN: ${{ vars.AUTHWARD_DEMO_PUBLIC_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate configuration (without logging secrets)
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$SESSION_KEY"
+          test -n "$PUBLIC_ORIGIN"
+          node -e 'const u = new URL(process.env.PUBLIC_ORIGIN); if(u.protocol!=="https:" || u.href!==u.origin+"/") process.exit(1)'
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run worker:build
+      - name: Publish worker (and preserve an unchanging session encryption key)
+        run: |
+          npm exec -- wrangler deploy --config worker/wrangler.toml
+          printf '%s' "$SESSION_KEY" | npm exec -- wrangler secret put SESSION_KEY --config worker/wrangler.toml
+          printf '%s' "$PUBLIC_ORIGIN" | npm exec -- wrangler secret put PUBLIC_ORIGIN --config worker/wrangler.toml
+      - name: Verify health
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 "$PUBLIC_ORIGIN/healthz"

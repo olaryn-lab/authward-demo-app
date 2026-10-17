@@ -73,3 +73,19 @@ This is an independent RFC 8628 **device authorization** flow with the separate 
 ## Integration guide
 
 The full production contract, security guidance, resource-level `interactionBaseUrl` behavior, same-origin CSRF, exact redirect URLs, and OAuth troubleshooting live in [Authward's official documentation](https://auth.olaryn.com/docs) and the [public product integration guide](https://auth.olaryn.com/agent/product-integration-guide.md). Keep secrets in server-side secret storage, and use maintained OIDC libraries rather than reimplementing providers.
+
+## Public live demo on Cloudflare Workers
+
+A Cloudflare Worker can serve this same product-owned login UI and handle the OIDC callback and a secure session for anyone with a browser—without requiring visitors to start a local server. **This is preferable to GitHub Pages**, which cannot run the required backend. The worker uses the same production Authward issuer and a separate **public PKCE client**, so there is **no OAuth client secret** to publish.
+
+The Worker uses a 32-byte random `SESSION_KEY` for AES-256-GCM encrypted, short-lived, HttpOnly + Secure + SameSite=Lax cookie sessions across Cloudflare isolates. This is a **private deployment secret**, not an OAuth client secret; keep it stable between deployments. It also needs its exact public HTTPS `PUBLIC_ORIGIN`. No Cloudflare KV/D1 database is needed for the reference app. A production app should add revocable/durable sessions, monitoring, and abuse controls.
+
+### First-time setup
+
+1. Connect a Cloudflare account with Workers enabled and choose a public URL such as `https://authward-demo.<your-workers-subdomain>.workers.dev`, or an approved custom domain. Avoid inventing a domain before it resolves.
+2. Configure the GitHub repository's **`cloudflare-demo`** environment: secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `AUTHWARD_DEMO_SESSION_KEY` (a fresh, stable 32-byte base64url key), and variable `AUTHWARD_DEMO_PUBLIC_ORIGIN` (the exact Worker HTTPS origin). Generate a key privately with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`; never commit or paste it into chat.
+3. Register a **separate** Authward public browser client `authward-demo-hosted` with the exact Worker callback `<PUBLIC_ORIGIN>/callback`, logout `<PUBLIC_ORIGIN>/`, identity-only audience, and the Worker URL as its product-facing `interactionBaseUrl`. Do **not** change the existing `authward-demo-local` client: its two localhost callback URLs remain usable.
+4. Run the GitHub Actions **Publish Authward live demo (Cloudflare Worker)** workflow. It validates the repo, builds the Worker, deploys, installs the existing session key, and checks `/healthz`. You may also run `npm run worker:build` and `npm run worker:dev` locally with your own *ignored* `worker/.dev.vars` file. Do not deploy using unregistered callback origins.
+5. Browser acceptance: verify Google/GitHub redirects, real email magic-link receipt and continuation, passkey behavior, the authenticated `/account` callback, consent, logout, and both localhost and hosted flows. A healthy Worker response alone does **not** prove a working login.
+
+The GitHub deployment workflow is **manual until** the Cloudflare account, exact URL, Authward client, and encrypted-session secret are configured. Then it can be switched to automatic deployments on `main`. A hosted public demo must never use a shared client secret or receive Beseam/Trevra/LemonCrow API scopes.
