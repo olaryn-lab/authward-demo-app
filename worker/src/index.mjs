@@ -250,6 +250,12 @@ export function createWorker(client=oidc,backendFetch=fetch) {
         } catch(error) {
           const message=error instanceof Error?error.message:'Passkey verification failed';
           const status=[400,401,403,404,429].includes(error?.status)?error.status:502;
+          // Do not log credential responses, identity tokens, or challenge data.
+          if(status===502)console.error('Native passkey BFF failed',{
+            errorName:error instanceof Error?error.name:'UnknownError',
+            upstreamStatus:typeof error?.status==='number'?error.status:null,
+            causeName:error?.cause instanceof Error?error.cause.name:null,
+          });
           return jsonResponse({error:status===502?'Passkey verification temporarily unavailable':message},status);
         }
       }
