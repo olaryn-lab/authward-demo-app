@@ -9,6 +9,8 @@ test('product-owned login shows real provider actions and email submission form'
   assert.match(html,/method="post" action="\/auth\/email"/);
   assert.match(html,/name="csrf" value="csrf-example"/);
   assert.match(html,/Copy CLI login command/);
+  assert.match(html,/First time using a passkey/);
+  assert.match(html,/https:\/\/auth\.olaryn\.com\/account#security/);
   assert.doesNotMatch(html,/Nook Commerce|Total revenue|Explore sample dashboard/);
 });
 test('real identity account is escaped and signs out with CSRF',()=>{
@@ -17,6 +19,7 @@ test('real identity account is escaped and signs out with CSRF',()=>{
   assert.match(html,/&lt;script&gt;/);
   assert.match(html,/name="csrf" value="csrf-2"/);
   assert.match(html,/method="post" action="\/logout"/);
+  assert.match(html,/Set up or manage passkeys/);
 });
 test('application consent UI forwards only local decision and no OAuth provider logic',()=>{
   const html=consentPage({csrf:'csrf-3',scopes:['openid','profile','email']});

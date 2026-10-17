@@ -67,6 +67,7 @@ export function signIn({mode='login',interactive=false,csrf='',info=''}={}) {
       ${provider('github','Continue with GitHub',{interactive,csrf})}
       ${provider('passkey','Sign in with a passkey',{interactive,csrf})}
     </div>
+    <p class="hint">First time using a passkey? Sign in with Google or GitHub, then <a href="https://auth.olaryn.com/account#security">add a passkey to your Authward account</a>.</p>
     <div class="divider">or continue with email</div>
     <form method="post" action="/auth/email"><label for="email">Email address</label><input type="email" name="email" id="email" placeholder="you@example.com" autocomplete="email" required><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="submit">${icons.email} Send sign-in link</button></form>
   </section>`,{showCli:true});
@@ -76,6 +77,7 @@ export function accountPage(account, csrf) {
   const display=account.name || account.email || 'Signed in';
   return page('Account',`<section class="card"><h1>${escapeHtml(display)}</h1><p class="sub"><span class="status"><span class="dot"></span> Authenticated with Authward</span></p>
     <div class="identity"><div><small>Email</small><strong>${escapeHtml(account.email||'Not shared by provider')}</strong></div><div><small>User ID</small><strong>${escapeHtml(account.sub)}</strong></div></div>
+    <a class="secondary" href="https://auth.olaryn.com/account#security">Set up or manage passkeys</a>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="secondary">Sign out</button></form>
   </section>`);
 }
