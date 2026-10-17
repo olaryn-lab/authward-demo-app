@@ -224,3 +224,26 @@ test('large OIDC identity tokens never exceed the encrypted cookie limit; logout
  assert.equal(target.pathname,'/api/auth/oauth2/end-session');
  assert.equal(target.searchParams.has('id_token_hint'),false);
 });
+
+test('passkey guide is product-owned and enrollment requires an authenticated app session',async()=>{
+ const {send}=stub();
+ const start=await send('/passkeys/setup');
+ assert.equal(start.status,200);
+ assert.match(await start.text(),/Sign in to add a passkey/);
+ const signin=await send('/passkeys/sign-in');
+ assert.equal(signin.status,200);
+ assert.match(await signin.text(),/Choose a saved passkey/);
+ const denied=await send('/passkeys/enroll');
+ assert.equal(denied.status,303);
+ assert.equal(denied.headers.get('location'),'/login');
+ const oauth=await send('/auth/start?method=google');
+ const callback=await send('/callback?code=valid&state=state-value',{headers:{cookie:cookie(oauth)}});
+ const appCookie=cookie(callback);
+ const guide=await send('/passkeys/setup',{headers:{cookie:appCookie}});
+ assert.match(await guide.text(),/Continue to secure passkey setup/);
+ const bridge=await send('/passkeys/enroll',{headers:{cookie:appCookie}});
+ assert.equal(bridge.status,303);
+ assert.equal(new URL(bridge.headers.get('location')).origin,'https://auth.olaryn.com');
+ assert.equal(new URL(bridge.headers.get('location')).pathname,'/passkeys/enroll');
+ assert.equal(new URL(bridge.headers.get('location')).searchParams.get('client_id'),'authward-demo-hosted');
+});

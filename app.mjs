@@ -7,7 +7,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import * as oidc from 'openid-client';
-import { signIn, accountPage, consentPage, errorPage } from './ui.mjs';
+import { signIn, accountPage, passkeySetupPage, passkeySignInPage, consentPage, errorPage } from './ui.mjs';
 
 const issuer = process.env.AUTHWARD_ISSUER || 'https://auth.olaryn.com';
 const clientId = process.env.AUTHWARD_CLIENT_ID || 'authward-demo-local';
@@ -178,10 +178,21 @@ export const server = createServer(async (req, res) => {
       target.searchParams.set('decision',form.get('decision'));
       return redirect(res,target.href);
     }
+    if(url.pathname==='/passkeys/setup' && req.method==='GET')
+      return html(res,200,passkeySetupPage({signedIn:Boolean(session(req)?.account)}));
+    if(url.pathname==='/passkeys/sign-in' && req.method==='GET')
+      return html(res,200,passkeySignInPage());
+    if(url.pathname==='/passkeys/enroll' && req.method==='GET') {
+      if(!session(req)?.account)return redirect(res,'/login');
+      const target=new URL('/passkeys/enroll',issuer);
+      target.searchParams.set('client_id',clientId);
+      return redirect(res,target.href);
+    }
     if (url.pathname === '/account' && req.method === 'GET') {
       const current = session(req);
       if (!current?.account) return redirect(res, '/auth/start');
-      return html(res, 200, accountPage(current.account, current.csrf));
+      return html(res, 200, accountPage(current.account, current.csrf,{
+        passkeyAdded:url.searchParams.get('passkey')==='added'}));
     }
     if (url.pathname === '/logout' && req.method === 'POST') {
       const form = await readForm(req);

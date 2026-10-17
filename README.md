@@ -101,3 +101,17 @@ A previously issued consent interaction can still be completed safely: the publi
 ### Sign-out behavior
 
 The demo's **Sign out** is not merely deleting a local cookie. It uses the OIDC `end_session_endpoint` published by production Authward, sends the verified ID-token hint and the exact client-registered `post_logout_redirect_uri`, and clears the application's session. Authward terminates its browser SSO session and returns to the branded demo login page, instead of silently logging you straight back in. On Authward, the next Google sign-in is configured to request account selection. The external Google/GitHub account session is not ended. If an OIDC hint is unavailable (e.g. unusually large token), Authward may show its own logout confirmation rather than ending an unverified browser session.
+
+## Passkey enrollment and sign-in UX
+
+Passkey onboarding begins **inside this application's own UI**, rather than sending customers through the Authward developer workspace:
+
+1. Open `/login` and choose **Continue with Google** or **GitHub** to authenticate once. Email magic link works after the configured email provider accepts delivery.
+2. Open your authenticated `/account` and choose **Set up a passkey**. The demo explains where credentials will be saved and what happens next.
+3. Choose **Continue to secure passkey setup**. The demo checks your session before redirecting to a dedicated, application-branded `https://auth.olaryn.com/passkeys/enroll?client_id=…` bridge. Authward verifies you are an identity associated with that registered demo client. The passkey ceremony must occur on the actual WebAuthn RP ID (`auth.olaryn.com`) and never on a different product origin.
+4. Name the passkey (optional) and approve your device's fingerprint, face, PIN, security-key or password-manager prompt. Upon successful verification the browser returns to `/account?passkey=added`. Cancelling returns to your account without claiming success.
+5. **Sign out**, then from the demo `/login` select **Sign in with a passkey**. The product-owned `/passkeys/sign-in` page explains the secure verification step, fallback to another method, and return to your account.
+
+The Authward enrollment bridge is specifically restricted to the two bootstrap-owned demo browser clients and their exact registered callback origins. It does not authorize access to `/developer`, create a workspace, or establish a second account. External integrations should use a supported product-scoped enrollment bridge, not copy a demo-only URL or attempt WebAuthn registration against an unrelated RP ID.
+
+All browser routes have localhost and Cloudflare variants. The public demo URL is [authward-demo.pankaj4u4m.workers.dev](https://authward-demo.pankaj4u4m.workers.dev/). The Authward `/developer` workspace and application pages include **Copy agent instructions**, covering customer-branded passkey enrollment and sign-in, provider OAuth, magic-link errors, callback/UserInfo verification, and OIDC RP-initiated sign-out. The canonical agent-readable reference is [Authward's integration contract](https://auth.olaryn.com/agent/product-integration-guide.md).

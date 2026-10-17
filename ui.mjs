@@ -28,6 +28,7 @@ function page(title, content, { showCli = false } = {}) {
   .divider{display:flex;align-items:center;gap:12px;margin:24px 0 19px;color:#85909b;font-size:12px}.divider:before,.divider:after{content:"";height:1px;flex:1;background:#e3e8ef}
   label{display:block;font-size:13px;font-weight:650;margin-bottom:7px}input{width:100%;height:46px;padding:0 13px;border:1px solid #ccd5df;border-radius:9px;font:inherit;color:#20272d;background:white}input:focus{outline:2px solid #88a9e8;outline-offset:1px}
   .submit{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;border:0;border-radius:9px;padding:12px 15px;min-height:47px;background:#244a87;color:white;font-size:14px;font-weight:600;font-family:inherit;line-height:1.3;cursor:pointer;margin-top:12px}.submit:hover{background:#173b73}
+  .guide-steps{padding:0 0 0 22px;margin:0 0 18px;color:#465366;font-size:13px;line-height:1.6}.guide-steps li{padding-left:4px;margin-bottom:12px}.guide-steps strong{color:#233449}
   .hint{margin-top:21px;color:#768394;font-size:12px;text-align:center}.hint a{color:#315999;text-decoration:none}.hint a:hover{text-decoration:underline}
   .notice{padding:11px 13px;margin:0 0 20px;background:#f0f6ff;border:1px solid #d6e5fb;border-radius:9px;color:#3b587a;font-size:13px}
   .identity{display:grid;gap:13px;margin:25px 0;border-top:1px solid #e8edf1;border-bottom:1px solid #e8edf1;padding:20px 0}.identity div{display:flex;flex-direction:column;gap:2px;min-width:0}.identity small{font-size:12px;color:#728092}.identity strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}
@@ -65,20 +66,45 @@ export function signIn({mode='login',interactive=false,csrf='',info=''}={}) {
     <div class="providers">
       ${provider('google','Continue with Google',{interactive,csrf})}
       ${provider('github','Continue with GitHub',{interactive,csrf})}
-      ${provider('passkey','Sign in with a passkey',{interactive,csrf})}
+      <a class="provider" href="/passkeys/sign-in">${icons.passkey}<span>Sign in with a passkey</span></a>
     </div>
-    <p class="hint">First time using a passkey? Sign in with Google or GitHub, then <a href="https://auth.olaryn.com/account#security">add a passkey to your Authward account</a>.</p>
+    <p class="hint">New to passkeys? <a href="/passkeys/setup">See how to set one up</a>.</p>
     <div class="divider">or continue with email</div>
     <form method="post" action="/auth/email"><label for="email">Email address</label><input type="email" name="email" id="email" placeholder="you@example.com" autocomplete="email" required><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="submit">${icons.email} Send sign-in link</button></form>
   </section>`,{showCli:true});
 }
 
-export function accountPage(account, csrf) {
+export function accountPage(account, csrf, {passkeyAdded=false}={}) {
   const display=account.name || account.email || 'Signed in';
   return page('Account',`<section class="card"><h1>${escapeHtml(display)}</h1><p class="sub"><span class="status"><span class="dot"></span> Authenticated with Authward</span></p>
     <div class="identity"><div><small>Email</small><strong>${escapeHtml(account.email||'Not shared by provider')}</strong></div><div><small>User ID</small><strong>${escapeHtml(account.sub)}</strong></div></div>
-    <a class="secondary" href="https://auth.olaryn.com/account#security">Set up or manage passkeys</a>
+    ${passkeyAdded?'<p class="notice" role="status">Passkey added. You can use it next time you sign in.</p>':''}
+    <a class="secondary" href="/passkeys/setup">Set up a passkey</a>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button type="submit" class="secondary">Sign out</button></form>
+  </section>`);
+}
+
+export function passkeySetupPage({signedIn=false}={}) {
+  return page('Set up a passkey',`<section class="card"><h1>Set up a passkey</h1>
+    <p class="sub">Sign in next time with your fingerprint, face unlock, device PIN, or password manager.</p>
+    <ol class="guide-steps"><li><strong>Sign in first.</strong> Use Google or GitHub to prove this is your account.</li>
+    <li><strong>Save your passkey.</strong> Your device or password manager will ask where to save it.</li>
+    <li><strong>Try it next time.</strong> Choose “Sign in with a passkey” on this demo.</li></ol>
+    <p class="notice">For security, the device prompt opens briefly on <strong>auth.olaryn.com</strong>, the domain that issues your passkey. You will return here afterward. This does not grant Authward workspace access.</p>
+    <a class="submit" style="text-decoration:none" href="${signedIn?'/passkeys/enroll':'/login'}">${signedIn?'Continue to secure passkey setup':'Sign in to add a passkey'}</a>
+    <a class="secondary" style="margin-top:12px" href="${signedIn?'/account':'/login'}">${signedIn?'Back to account':'Back to sign in'}</a>
+  </section>`);
+}
+
+export function passkeySignInPage() {
+  return page('Sign in with a passkey',`<section class="card"><h1>Use your passkey</h1>
+    <p class="sub">Choose a passkey already saved in your device, password manager, or security key.</p>
+    <ol class="guide-steps"><li><strong>Continue to secure verification.</strong> Your browser opens a short passkey step on auth.olaryn.com.</li>
+    <li><strong>Choose a saved passkey.</strong> Confirm with Face ID, fingerprint, PIN, or your security key.</li>
+    <li><strong>Return signed in.</strong> After verification you come back to this demo account.</li></ol>
+    <a class="submit" style="text-decoration:none" href="/auth/start?method=passkey">${icons.passkey} Continue with passkey</a>
+    <p class="hint">No passkey yet? <a href="/passkeys/setup">Learn how to add one</a>.</p>
+    <a class="secondary" style="margin-top:12px" href="/login">Use Google, GitHub, or email instead</a>
   </section>`);
 }
 

@@ -74,3 +74,15 @@ test('logout requires a same-origin CSRF-authenticated session',async()=>{
   const r=await request('/logout',{method:'POST',headers:{origin:'http://127.0.0.1:4402'},body:'csrf=fake'});
   assert.equal(r.status,403);
 });
+
+test('passkey setup and sign-in explanations work without authentication',async()=>{
+  const guide=await request('/passkeys/setup');
+  assert.equal(guide.status,200);
+  assert.match(await guide.text(),/Sign in to add a passkey/);
+  const signin=await request('/passkeys/sign-in');
+  assert.equal(signin.status,200);
+  assert.match(await signin.text(),/Continue with passkey/);
+  const protectedEnroll=await request('/passkeys/enroll');
+  assert.equal(protectedEnroll.status,303);
+  assert.equal(protectedEnroll.headers.get('location'),'/login');
+});

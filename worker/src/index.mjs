@@ -6,7 +6,7 @@
  * Encrypted, short-lived, host-only cookies work across all edge isolates.
  */
 import * as oidc from 'openid-client';
-import { signIn, accountPage, consentPage, errorPage } from '../../ui.mjs';
+import { signIn, accountPage, passkeySetupPage, passkeySignInPage, consentPage, errorPage } from '../../ui.mjs';
 
 const cookieName = '__Host-authward_demo';
 const encoder = new TextEncoder();
@@ -177,9 +177,20 @@ export function createWorker(client=oidc) {
             ? {idTokenHint:tokens.id_token} : {})};
         return redirect('/account',setCookie(await seal(session,env)));
       }
+      if(req.method==='GET' && u.pathname==='/passkeys/setup')
+        return html(passkeySetupPage({signedIn:Boolean(current?.account)}));
+      if(req.method==='GET' && u.pathname==='/passkeys/sign-in')
+        return html(passkeySignInPage());
+      if(req.method==='GET' && u.pathname==='/passkeys/enroll') {
+        if(!current?.account)return redirect('/login');
+        const bridge=new URL('/passkeys/enroll',c.issuer);
+        bridge.searchParams.set('client_id',c.clientId);
+        return redirect(bridge.href);
+      }
       if(req.method==='GET' && u.pathname==='/account'){
         if(!current?.account)return redirect('/login');
-        return html(accountPage(current.account,current.csrf));
+        return html(accountPage(current.account,current.csrf,{
+          passkeyAdded:u.searchParams.get('passkey')==='added'}));
       }
       if(req.method==='POST' && u.pathname==='/logout'){
         if(!current?.account||!sameOrigin(req,c.origin.origin))return errorHtml('Invalid logout request',403);

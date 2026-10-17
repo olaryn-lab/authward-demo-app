@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {signIn,accountPage,consentPage,errorPage} from './ui.mjs';
+import {signIn,accountPage,passkeySetupPage,passkeySignInPage,consentPage,errorPage} from './ui.mjs';
 
 test('product-owned login shows real provider actions and email submission form',()=>{
   const html=signIn({csrf:'csrf-example'});
@@ -9,8 +9,8 @@ test('product-owned login shows real provider actions and email submission form'
   assert.match(html,/method="post" action="\/auth\/email"/);
   assert.match(html,/name="csrf" value="csrf-example"/);
   assert.match(html,/Copy CLI login command/);
-  assert.match(html,/First time using a passkey/);
-  assert.match(html,/https:\/\/auth\.olaryn\.com\/account#security/);
+  assert.match(html,/New to passkeys/);
+  assert.match(html,/href="\/passkeys\/setup"/);
   assert.doesNotMatch(html,/Nook Commerce|Total revenue|Explore sample dashboard/);
 });
 test('real identity account is escaped and signs out with CSRF',()=>{
@@ -19,7 +19,7 @@ test('real identity account is escaped and signs out with CSRF',()=>{
   assert.match(html,/&lt;script&gt;/);
   assert.match(html,/name="csrf" value="csrf-2"/);
   assert.match(html,/method="post" action="\/logout"/);
-  assert.match(html,/Set up or manage passkeys/);
+  assert.match(html,/href="\/passkeys\/setup"/);
 });
 test('application consent UI forwards only local decision and no OAuth provider logic',()=>{
   const html=consentPage({csrf:'csrf-3',scopes:['openid','profile','email']});
@@ -31,4 +31,20 @@ test('application consent UI forwards only local decision and no OAuth provider 
 });
 test('errors escape untrusted strings',()=>{
   assert.match(errorPage('<img src=x>'),/&lt;img src=x&gt;/);
+});
+
+test('passkey onboarding stays product-branded, then explains the secure Authward ceremony',()=>{
+ const signup=passkeySetupPage({signedIn:false});
+ assert.match(signup,/Sign in to add a passkey/);
+ assert.match(signup,/href="\/login"/);
+ assert.doesNotMatch(signup,/href="https:\/\/auth\.olaryn\.com\/account/);
+ const loggedIn=passkeySetupPage({signedIn:true});
+ assert.match(loggedIn,/Continue to secure passkey setup/);
+ assert.match(loggedIn,/href="\/passkeys\/enroll"/);
+ assert.match(loggedIn,/auth\.olaryn\.com/);
+ const signin=passkeySignInPage();
+ assert.match(signin,/Choose a saved passkey/);
+ assert.match(signin,/href="\/auth\/start\?method=passkey"/);
+ assert.match(signin,/No passkey yet/);
+ assert.match(accountPage({sub:'sub',email:'a@b.test'},'csrf',{passkeyAdded:true}),/Passkey added/);
 });
