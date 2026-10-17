@@ -251,7 +251,7 @@ test('native passkeys use same-origin BFF endpoints with session-bound one-time 
   const backendFetch=async(url,init)=>{
     const route=new URL(url).pathname;
     const body=JSON.parse(init.body);
-    requests.push({route,origin:init.headers.origin,body});
+    requests.push({route,origin:init.headers.origin,redirect:init.redirect,body});
     if(route.endsWith('/options'))return Response.json({challengeId:'12345678-1234-1234-1234-123456789abc',
       options:{challenge:'opaque-challenge',rpId:'authward-demo.pankaj4u4m.workers.dev'}});
     if(route.endsWith('/registration/verify'))return Response.json({ok:true});
@@ -305,6 +305,7 @@ test('native passkeys use same-origin BFF endpoints with session-bound one-time 
   assert.equal(signout.headers.get('location'),'/login');
   assert.equal(requests.length,4);
   assert.ok(requests.every(x=>x.origin===origin));
+  assert.ok(requests.every(x=>x.redirect==='manual'));
   assert.ok(requests.every(x=>x.route.startsWith('/v1/native-passkeys/')));
 });
 
@@ -326,4 +327,17 @@ test('native passkey login never grants a session before Authward verification s
   assert.match((await failed.json()).error,/Signature invalid/);
   assert.equal(failed.headers.get('set-cookie'),null);
   assert.equal((await send('/account',{headers:{cookie:cookie(start)}})).headers.get('location'),'/login');
+});
+
+test('unexpected Authward redirect is rejected instead of following to another host',async()=>{
+ const {client}=stub();
+ const worker=createWorker(client,async()=>new Response(null,{status:302,headers:{location:'https://attacker.example/steal'}}));
+ const send=(path,init={})=>worker.fetch(new Request(origin+path,init),config);
+ const login=await send('/passkeys/sign-in');
+ const csrf=(await login.text()).match(/data-csrf="([^"]+)"/)?.[1];
+ const response=await send('/api/passkeys/authentication/options',{method:'POST',headers:{cookie:cookie(login),origin,
+  'content-type':'application/json','x-csrf-token':csrf},body:'{}'});
+ assert.equal(response.status,502);
+ assert.equal(response.headers.get('location'),null);
+ assert.equal((await response.json()).error,'Passkey verification temporarily unavailable');
 });

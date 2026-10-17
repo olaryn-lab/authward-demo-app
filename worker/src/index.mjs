@@ -94,7 +94,8 @@ async function nativeAuthwardCall(c,endpoint,data,backendFetch=(url,init)=>fetch
   if(c.issuer!==defaultIssuer || c.clientId!=='authward-demo-hosted')throw Error('Native demo issuer/client mismatch');
   const url=new URL(nativeApiPrefix+endpoint,c.issuer);
   const response=await backendFetch(url.href,{method:'POST',headers:{'content-type':'application/json','origin':c.origin.origin},
-    body:JSON.stringify(data),redirect:'error'});
+    body:JSON.stringify(data),redirect:'manual'});
+  if(response.status>=300 && response.status<400)throw Object.assign(Error('Unexpected Authward backend redirect'),{status:502});
   const result=await response.json().catch(()=>({}));
   if(!response.ok)throw Object.assign(Error(typeof result.error==='string'?result.error:'Passkey verification unavailable'),{status:response.status});
   return result;
